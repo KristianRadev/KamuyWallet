@@ -25,9 +25,9 @@ use tokio::time::{timeout, Duration};
 pub struct SubmitTransactionRequest {
     /// Destination address (0x...)
     pub to: String,
-    /// Amount in wei (integer string)
+    /// Amount in USDC micros (integer string, e.g., 100000000 = 1 USDC)
     pub value: String,
-    /// Token symbol (USDC, USDT, DAI)
+    /// Token symbol (USDC only in v2.0)
     pub token: String,
     /// Chain ID (1=Ethereum, 8453=Base, 137=Polygon, 42161=Arbitrum, 10=Optimism)
     pub chain_id: u64,
@@ -481,11 +481,13 @@ fn validate_transaction_fields(request: &SubmitTransactionRequest) -> Result<(),
         return Err("Amount required".to_string());
     }
 
-    match request.value.parse::<u128>() {
-        Ok(_) => {}
-        Err(_) => {
-            return Err("Invalid amount format: must be integer in micros".to_string());
-        }
+    // SECURITY: Parse and validate amount
+    let amount = request.value.parse::<u128>()
+        .map_err(|_| "Invalid amount format: must be integer in micros".to_string())?;
+
+    // SECURITY: Reject zero amounts
+    if amount == 0 {
+        return Err("Amount must be greater than zero".to_string());
     }
 
     if !is_valid_ethereum_address(&request.to) {
@@ -785,4 +787,84 @@ pub async fn check_signing_keys(
     let stats = state.signing_coordinator.stats().await;
     
     success(serde_json::json!({"keys_loaded": keys_loaded, "completed_signatures": stats.completed_signatures}), request_id).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_request() -> SubmitTransactionRequest {
+        SubmitTransactionRequest {
+            to: "0x1234567890123456789012345678901234567890".to_string(),
+            value: "100000000".to_string(), // 1 USDC in micros
+            token: "USDC".to_string(),
+            chain_id: 1,
+            request_id: None,
+            wait: true,
+            timeout_secs: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_transaction_fields_valid() {
+        let request = valid_request();
+        assert!(validate_transaction_fields(&request).is_ok());
+    }
+
+    #[test]
+    fn test_validate_usdc_case_insensitive() {
+        let mut request = valid_request();
+        request.token = "usdc".to_string();
+        assert!(validate_transaction_fields(&request).is_ok());
+
+        request.token = "UsDc".to_string();
+        assert!(validate_transaction_fields(&request).is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_non_usdc() {
+        let mut request = valid_request();
+        request.token = "USDT".to_string();
+        assert!(validate_transaction_fields(&request).is_err());
+
+        request.token = "DAI".to_string();
+        assert!(validate_transaction_fields(&request).is_err());
+
+        request.token = "ETH".to_string();
+        assert!(validate_transaction_fields(&request).is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_zero_amount() {
+        let mut request = valid_request();
+        request.value = "0".to_string();
+        let result = validate_transaction_fields(&request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("greater than zero"));
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_amount() {
+        let mut request = valid_request();
+        request.value = "".to_string();
+        let result = validate_transaction_fields(&request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Amount required"));
+    }
+
+    #[test]
+    fn test_validate_rejects_invalid_amount_format() {
+        let mut request = valid_request();
+        request.value = "not_a_number".to_string();
+        let result = validate_transaction_fields(&request);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be integer"));
+    }
+
+    #[test]
+    fn test_validate_rejects_invalid_address() {
+        let mut request = valid_request();
+        request.to = "invalid".to_string();
+        assert!(validate_transaction_fields(&request).is_err());
+    }
 }
