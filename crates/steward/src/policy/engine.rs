@@ -4,6 +4,7 @@
 
 use super::rules::PolicyRules;
 use crate::error::{StewardError, Result};
+use crate::types::ApprovalLevel;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -181,12 +182,82 @@ impl PolicyEngine {
     /// Validate a policy update without applying it
     pub async fn validate_update(&self, key: &str, value: &str) -> Result<()> {
         let rules = self.rules.read().await.clone();
-        
+
         // Try to update (this validates)
         let mut test_rules = rules;
         test_rules.update(key, value)?;
-        
+
         Ok(())
+    }
+
+    /// Evaluate a transaction and return required approval level
+    /// Implements "higher-security-wins" logic
+    pub async fn evaluate_transaction(
+        &self,
+        to: &str,
+        amount: u64,
+    ) -> (ApprovalLevel, Vec<String>) {
+        let rules = self.rules.read().await.clone();
+        let mut violations = Vec::new();
+        let mut max_approval = ApprovalLevel::AutoApprove;
+
+        // Check spending tracker (reset if needed)
+        let mut tracker = rules.spending_tracker.clone();
+        tracker.check_and_reset();
+
+        // Check 1: Amount exceeds per-transaction limit
+        if amount > rules.max_per_tx {
+            violations.push(format!(
+                "Amount {} exceeds max_per_tx {}",
+                amount, rules.max_per_tx
+            ));
+            max_approval = std::cmp::max(max_approval, ApprovalLevel::TelegramButton);
+        }
+
+        // Check 2: Would exceed daily limit
+        if tracker.would_exceed_daily(amount, rules.max_daily) {
+            violations.push(format!(
+                "Would exceed daily limit (spent: {}, limit: {}, amount: {})",
+                tracker.daily_spent, rules.max_daily, amount
+            ));
+            max_approval = std::cmp::max(max_approval, ApprovalLevel::TelegramButton);
+        }
+
+        // Check 3: Would exceed weekly limit
+        if tracker.would_exceed_weekly(amount, rules.max_weekly) {
+            violations.push(format!(
+                "Would exceed weekly limit (spent: {}, limit: {}, amount: {})",
+                tracker.weekly_spent, rules.max_weekly, amount
+            ));
+            max_approval = std::cmp::max(max_approval, ApprovalLevel::TelegramButton);
+        }
+
+        // Check 4: Address not whitelisted
+        if !rules.is_whitelisted(to) {
+            violations.push(format!("Address {} is not whitelisted", to));
+
+            if amount > rules.auto_add_threshold {
+                // Over threshold requires terminal password
+                max_approval = std::cmp::max(max_approval, ApprovalLevel::TerminalPassword);
+            } else {
+                // Under threshold: Telegram button to add and pay
+                max_approval = std::cmp::max(max_approval, ApprovalLevel::TelegramButton);
+            }
+        }
+
+        (max_approval, violations)
+    }
+
+    /// Add address to whitelist
+    pub async fn add_to_whitelist(&self, address: impl Into<String>, label: impl Into<String>) {
+        let mut rules = self.rules.write().await;
+        rules.add_to_whitelist(address, label);
+    }
+
+    /// Record spending after successful transaction
+    pub async fn record_spending(&self, amount: u64, to_address: &str) {
+        let mut rules = self.rules.write().await;
+        rules.record_spending(amount, to_address);
     }
 }
 
@@ -206,6 +277,7 @@ impl Clone for PolicyEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ApprovalLevel;
     use tempfile::TempDir;
     use std::sync::{Mutex, OnceLock};
 
@@ -297,6 +369,93 @@ mod tests {
         // Valid update should succeed
         let result = engine.update_rule("max_per_tx", "200000000").await;
         assert!(result.is_ok());
+
+        std::env::remove_var("STEWARD_POLICY_DIR");
+    }
+
+    #[tokio::test]
+    async fn test_auto_approve_within_limits() {
+        let _guard = get_mutex().lock().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let policy_path = temp_dir.path().join("policy.json");
+        std::env::set_var("STEWARD_POLICY_DIR", temp_dir.path());
+
+        let engine = PolicyEngine::new(&policy_path).unwrap();
+
+        engine.add_to_whitelist("0x1234", "Test").await;
+
+        let (level, violations) = engine.evaluate_transaction("0x1234", 50_000_000).await;
+        assert_eq!(level, ApprovalLevel::AutoApprove);
+        assert!(violations.is_empty());
+
+        std::env::remove_var("STEWARD_POLICY_DIR");
+    }
+
+    #[tokio::test]
+    async fn test_telegram_button_for_over_per_tx() {
+        let _guard = get_mutex().lock().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let policy_path = temp_dir.path().join("policy.json");
+        std::env::set_var("STEWARD_POLICY_DIR", temp_dir.path());
+
+        let engine = PolicyEngine::new(&policy_path).unwrap();
+
+        engine.add_to_whitelist("0x1234", "Test").await;
+
+        let (level, violations) = engine.evaluate_transaction("0x1234", 150_000_000).await;
+        assert_eq!(level, ApprovalLevel::TelegramButton);
+        assert!(!violations.is_empty());
+
+        std::env::remove_var("STEWARD_POLICY_DIR");
+    }
+
+    #[tokio::test]
+    async fn test_terminal_password_for_new_address_over_threshold() {
+        let _guard = get_mutex().lock().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let policy_path = temp_dir.path().join("policy.json");
+        std::env::set_var("STEWARD_POLICY_DIR", temp_dir.path());
+
+        let engine = PolicyEngine::new(&policy_path).unwrap();
+
+        // 100_000_000 > auto_add_threshold (50_000_000)
+        let (level, violations) = engine.evaluate_transaction("0x5678", 100_000_000).await;
+        assert_eq!(level, ApprovalLevel::TerminalPassword);
+        assert!(violations.iter().any(|v| v.contains("not whitelisted")));
+
+        std::env::remove_var("STEWARD_POLICY_DIR");
+    }
+
+    #[tokio::test]
+    async fn test_telegram_button_for_new_address_under_threshold() {
+        let _guard = get_mutex().lock().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let policy_path = temp_dir.path().join("policy.json");
+        std::env::set_var("STEWARD_POLICY_DIR", temp_dir.path());
+
+        let engine = PolicyEngine::new(&policy_path).unwrap();
+
+        // 25_000_000 <= auto_add_threshold (50_000_000)
+        let (level, violations) = engine.evaluate_transaction("0x5678", 25_000_000).await;
+        assert_eq!(level, ApprovalLevel::TelegramButton);
+        assert!(violations.iter().any(|v| v.contains("not whitelisted")));
+
+        std::env::remove_var("STEWARD_POLICY_DIR");
+    }
+
+    #[tokio::test]
+    async fn test_higher_security_wins() {
+        let _guard = get_mutex().lock().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let policy_path = temp_dir.path().join("policy.json");
+        std::env::set_var("STEWARD_POLICY_DIR", temp_dir.path());
+
+        let engine = PolicyEngine::new(&policy_path).unwrap();
+
+        // New address over threshold + over per_tx limit
+        // TerminalPassword (higher) should win over TelegramButton
+        let (level, _) = engine.evaluate_transaction("0x9999", 150_000_000).await;
+        assert_eq!(level, ApprovalLevel::TerminalPassword);
 
         std::env::remove_var("STEWARD_POLICY_DIR");
     }
