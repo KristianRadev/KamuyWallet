@@ -102,6 +102,17 @@ The password is already in memory from the init prompt. Use it to unlock.
 8. Unlock wallet with password
 9. Print wallet address
 
+**Wallet already exists check:**
+- If `~/.kamuy/wallet.json` exists, show message and exit:
+  ```
+  A wallet already exists at ~/.kamuy/wallet.json
+
+  To check your wallet: kamuy status
+  To create a new wallet: kamuy init --reset
+  ```
+- `kamuy init --reset` will delete the old wallet and generate a new API key
+- API key only changes on first init or `--reset` (not on accidental re-runs)
+
 **Error handling during init:**
 | Failure Mode | Behavior |
 |--------------|----------|
