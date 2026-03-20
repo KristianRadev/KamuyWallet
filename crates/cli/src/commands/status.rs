@@ -9,28 +9,48 @@ use anyhow::Result;
 use colored::Colorize;
 use std::sync::Arc;
 
+use crate::config::SimpleConfig;
+
 /// Execute status command
 pub async fn execute(ctx: Arc<CliContext>, detailed: bool) -> Result<()> {
     println!("{}", "📊 Wallet Status".bold().cyan());
     println!();
-    
+
+    // Check steward process status from PID file
+    let steward_status = check_steward_status();
+    println!("{}", "Steward:".bold());
+    match steward_status {
+        Ok((pid, running)) => {
+            if running {
+                println!("  Status: {}", "running".green());
+                println!("  PID: {}", pid);
+            } else {
+                println!("  Status: {} (stale PID: {})", "stopped".yellow(), pid);
+            }
+        }
+        Err(_) => {
+            println!("  Status: {}", "not running".red());
+        }
+    }
+    println!();
+
     // Check Steward connection
-    let spinner = create_spinner("Connecting to Steward...");
-    
+    let spinner = create_spinner("Connecting to Steward API...");
+
     match ctx.steward.health().await {
         Ok(health) => {
-            spinner.finish_with_message(format!("Connected to Steward v{}", health.version));
+            spinner.finish_with_message(format!("API: Steward v{}", health.version));
 
             if health.status != "healthy" {
                 print_warning(&format!("Steward status: {}", health.status));
             }
         }
         Err(e) => {
-            spinner.finish_with_message("Connection failed".to_string());
-            print_error(&format!("Cannot connect to Steward: {}", e));
+            spinner.finish_with_message("API: Connection failed".to_string());
+            print_error(&format!("Cannot connect to Steward API: {}", e));
             println!();
-            println!("Make sure the Steward service is running:");
-            println!("  kamuy-steward");
+            println!("To start steward:");
+            println!("  kamuy start");
             return Ok(());
         }
     }
@@ -92,4 +112,31 @@ pub async fn execute(ctx: Arc<CliContext>, detailed: bool) -> Result<()> {
     }
     
     Ok(())
+}
+
+/// Check steward status from PID file
+fn check_steward_status() -> Result<(i32, bool)> {
+    let config = SimpleConfig::load()?
+        .ok_or_else(|| anyhow::anyhow!("No config found"))?;
+
+    let pid_path = &config.steward_pid_file;
+    if !pid_path.exists() {
+        return Err(anyhow::anyhow!("No PID file"));
+    }
+
+    let pid_str = std::fs::read_to_string(pid_path)?;
+    let pid: i32 = pid_str.trim().parse()
+        .map_err(|_| anyhow::anyhow!("Invalid PID"))?;
+
+    #[cfg(unix)]
+    {
+        use libc::kill;
+        let running = unsafe { kill(pid, 0) } == 0;
+        Ok((pid, running))
+    }
+
+    #[cfg(not(unix))]
+    {
+        Ok((pid, false))
+    }
 }
