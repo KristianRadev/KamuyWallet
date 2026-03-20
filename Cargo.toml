@@ -1,0 +1,94 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mpc-core",
+    "crates/wallet-core",
+    "crates/wallet-wasm",
+    "crates/cli",
+    "crates/steward",
+    "crates/smart-account",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["Kris <kris@kamuy.io>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kris/kamuy-wallet"
+description = "MPC-based wallet for AI agents"
+keywords = ["mpc", "wallet", "threshold", "ecdsa", "ai-agent"]
+categories = ["cryptography", "authentication"]
+
+[workspace.dependencies]
+# Cryptography
+k256 = { version = "0.13", features = ["ecdsa", "sha256", "arithmetic"] }
+elliptic-curve = { version = "0.13", features = ["sec1", "arithmetic"] }
+rand = "0.8"
+rand_core = "0.6"
+sha2 = "0.10"
+sha3 = "0.10"
+blake3 = { version = "1.5", features = ["pure"] }
+hmac = "0.12"
+aead = "0.5"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+zeroize = { version = "1.8", features = ["derive"] }
+subtle = { version = "2.5", default-features = false, features = ["const-generics"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+base64 = "0.22"
+bs58 = "0.5"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Async
+tokio = { version = "1.49", features = ["full"] }
+tokio-test = "0.4"
+futures = "0.3"
+async-trait = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# BIP32
+derivation-path = "0.2"
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+ripemd = "0.1"
+
+# Testing
+proptest = "1.9"
+criterion = "0.5"
+
+# WASM
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+opt-level = 3
+
+[profile.release-wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+
+[profile.dev]
+opt-level = 1

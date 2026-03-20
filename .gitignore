@@ -1,0 +1,62 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# WASM
+pkg/
+*.wasm
+
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Test artifacts
+*.profraw
+*.profdata
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Keys (NEVER commit keys!)
+*.key
+*.pem
+*.p12
+*.pfx
+keys/
+secrets/
+
+# Temporary
+tmp/
+temp/
+.tmp/
