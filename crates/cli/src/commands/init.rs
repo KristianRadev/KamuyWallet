@@ -168,9 +168,17 @@ pub async fn execute(
 /// Generate a wallet address (placeholder for DKG result)
 fn generate_wallet_address() -> String {
     // In production, this would be derived from the DKG public key
-    // For now, generate a placeholder
+    // For now, generate a placeholder from UUID (16 bytes) + random padding (4 bytes)
+    let uuid = uuid::Uuid::new_v4();
+    let uuid_bytes = uuid.as_bytes();
     let mut bytes = [0u8; 20];
-    bytes.copy_from_slice(&uuid::Uuid::new_v4().as_bytes()[..20]);
+    bytes[..16].copy_from_slice(uuid_bytes);
+    // Pad remaining 4 bytes with random data from system time
+    let padding = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u32).to_be_bytes();
+    bytes[16..20].copy_from_slice(&padding);
     format!("0x{}", hex::encode(bytes))
 }
 
