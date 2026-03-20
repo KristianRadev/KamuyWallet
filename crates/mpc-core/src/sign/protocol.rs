@@ -653,33 +653,44 @@ pub fn sign_single(
     
     // Generate nonce
     let k = Scalar::random(&mut rng);
-    
+
     // Compute R = k * G
     let r_point = (ProjectivePoint::GENERATOR * k).to_affine();
-    
+
     // Compute r = R.x mod n
-    let r_bytes: [u8; 32] = r_point.x().unwrap().into();
+    let r_point_encoded = r_point.to_encoded_point(false);
+    let x_bytes = r_point_encoded.x().unwrap();
+    let r_bytes: [u8; 32] = (*x_bytes).into();
     let r = <Scalar as Reduce<U256>>::reduce_bytes(&r_bytes.into());
-    
+
     // Compute m
     let m = <Scalar as Reduce<U256>>::reduce_bytes(&(*message).into());
-    
+
     // Compute s = k^{-1} * (m + r * sk)
-    let k_inv = k.invert().map_err(|_| Error::Signature("k is zero".to_string()))?;
+    let k_inv = k.invert().into_option()
+        .ok_or_else(|| Error::Signature("k is zero".to_string()))?;
     let s = k_inv * (m + r * secret_key);
-    
-    // Ensure s is in lower half
-    let n_half = Scalar::from(k256::U256::from_be_hex(
-        "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0"
-    ));
-    
-    let s = if bool::from(s.ct_gt(&n_half)) {
+
+    // Ensure s is in lower half (use reduce_bytes to convert bytes to scalar)
+    let n_half_bytes: [u8; 32] = [
+        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d,
+        0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b, 0x20, 0xa0,
+    ];
+    let n_half = <Scalar as Reduce<U256>>::reduce_bytes(&n_half_bytes.into());
+
+    let s = if s > n_half {
         Scalar::ZERO - s
     } else {
         s
     };
-    
-    let is_y_odd = r_point.y().map(|y| y.is_odd().into()).unwrap_or(false);
+
+    // Get y coordinate to determine recovery id
+    let r_point_encoded = r_point.to_encoded_point(false);
+    let is_y_odd = r_point_encoded.y()
+        .map(|y| y.as_slice().last().unwrap() & 1 == 1)
+        .unwrap_or(false);
     let recid = if is_y_odd { 1 } else { 0 };
     
     Ok(Signature::new(
@@ -693,6 +704,8 @@ pub fn sign_single(
 mod tests {
     use super::*;
     use crate::types::{KeyShareMetadata, PartyRole};
+    use crate::sign::messages::SignResult;
+    use k256::AffinePoint;
 
     fn create_test_key_share(party_id: PartyId, secret: u64) -> AgentKeyShare {
         let secret_scalar = Scalar::from(secret);

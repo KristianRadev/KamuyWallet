@@ -78,24 +78,30 @@ impl Phase3Progress {
     /// Load progress from file
     pub fn load() -> Result<Self> {
         let file_path = Self::progress_file();
-        
+
         if !file_path.exists() {
             debug!("No progress file found, starting fresh");
             return Ok(Self::default());
         }
-        
+
         let content = std::fs::read_to_string(&file_path)
             .with_context(|| format!("Failed to read progress file: {:?}", file_path))?;
-        
-        let progress: Phase3Progress = serde_json::from_str(&content)
-            .with_context(|| "Failed to parse progress file")?;
-        
+
+        let progress: Phase3Progress = match serde_json::from_str(&content) {
+            Ok(p) => p,
+            Err(e) => {
+                // If parse fails (old format or corrupt), start fresh
+                debug!("Progress file parse error, starting fresh: {}", e);
+                return Ok(Self::default());
+            }
+        };
+
         info!(
             task = %progress.current_task,
             completed_files = progress.completed_files.len(),
             "Loaded progress from file"
         );
-        
+
         Ok(progress)
     }
     

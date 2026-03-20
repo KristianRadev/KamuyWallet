@@ -29,6 +29,7 @@ def parse_query_type(text: str) -> str:
     Returns:
         Query type: "balance", "policy", "history", "whitelist", "pending", or "status".
     """
+    import re
     text_lower = text.lower()
 
     # Balance queries
@@ -37,13 +38,16 @@ def parse_query_type(text: str) -> str:
         if not any(kw in text_lower for kw in ["history", "recent", "spent", "transaction"]):
             return "balance"
 
-    # Pending queries (check before policy to catch "pending approval")
-    if any(keyword in text_lower for keyword in ["pending", "approval", "awaiting"]):
-        return "pending"
-
-    # Policy/limit queries
-    if any(keyword in text_lower for keyword in ["policy", "limit", "spending limit", "threshold"]):
+    # Policy/limit queries - check before pending to catch "spending limit"
+    if any(keyword in text_lower for keyword in ["policy", "spending limit", "threshold", "my limit"]):
         return "policy"
+    # Check for "limit" as a standalone word (not part of "spending limit")
+    if re.search(r'\blimit\b', text_lower) and "spending limit" not in text_lower:
+        return "policy"
+
+    # Pending queries - use word boundaries to avoid matching "spending"
+    if re.search(r'\bpending\b', text_lower) or "approval" in text_lower or "awaiting" in text_lower:
+        return "pending"
 
     # History queries
     if any(keyword in text_lower for keyword in ["history", "recent", "spent", "transaction", "activity"]):

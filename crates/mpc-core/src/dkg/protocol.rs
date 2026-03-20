@@ -481,6 +481,7 @@ fn compute_public_shares(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k256::AffinePoint;
 
     #[test]
     fn test_generate_secret_polynomial() {
