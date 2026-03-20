@@ -65,6 +65,8 @@ Your wallet address: 0xABC...1234
 }
 ```
 
+**Note on config location:** Current codebase uses `~/.config/kamuy/` with TOML format. This spec standardizes on `~/.kamuy/` with JSON for simplicity. The `kamuy init` command will handle migration if an old config exists.
+
 ### 2. Defaults Eliminate Env Vars
 
 | Current (env var) | New (default) |
@@ -100,12 +102,31 @@ The password is already in memory from the init prompt. Use it to unlock.
 8. Unlock wallet with password
 9. Print wallet address
 
+**Error handling during init:**
+| Failure Mode | Behavior |
+|--------------|----------|
+| Port 8080 already in use | Error: "Port 8080 in use. Stop existing steward or use `--port` flag" |
+| Binary not in PATH | Error: "kamuy-steward not found. Re-run install script" |
+| Daemon fails to start | Error with steward log path, exit code 1 |
+| Stale PID file exists | Check if process running; if not, remove stale file and proceed |
+
+**Stale PID file handling:**
+- Before starting, check if PID in `steward.pid` is running (`kill -0 $PID`)
+- If not running, remove stale file and proceed
+- If running, check if it's actually kamuy-steward
+- If different process, error with suggestion to use different port
+
 **New CLI commands:**
 ```bash
 kamuy start     # Start steward daemon
 kamuy stop      # Stop steward daemon
 kamuy status    # Show steward status + wallet info
 ```
+
+**`kamuy unlock` remains available** for manual unlock after:
+- `kamuy stop` followed by `kamuy start`
+- Computer reboot
+- Steward crash/restart
 
 ### 5. Config Priority
 
@@ -145,9 +166,10 @@ cat ~/.kamuy/config.json | jq -r '.api_key'
 
 | File | Change |
 |------|--------|
-| `crates/cli/src/config.rs` | Add config file reading, defaults |
-| `crates/cli/src/commands/init.rs` | Auto-start steward, auto-unlock |
-| `crates/cli/src/commands/mod.rs` | Add `start`, `stop`, `config` subcommands |
+| `crates/cli/src/config.rs` | Add config file reading from `~/.kamuy/config.json`, auto-generate API key |
+| `crates/cli/src/commands/init.rs` | Auto-start steward, auto-unlock, handle stale PID |
+| `crates/cli/src/commands/mod.rs` | Add `start`, `stop` subcommands |
+| `crates/cli/src/commands/config_cmd.rs` | Add `get` subcommand for API key retrieval |
 | `crates/steward/src/config.rs` | Support config file input |
 | `install.sh` | Simplify, no env var instructions |
 
@@ -157,7 +179,8 @@ cat ~/.kamuy/config.json | jq -r '.api_key'
 |------|---------|
 | `crates/cli/src/commands/start.rs` | Start steward daemon |
 | `crates/cli/src/commands/stop.rs` | Stop steward daemon |
-| `crates/cli/src/commands/config_cmd.rs` | Get/set config values |
+
+**Note:** `config_cmd.rs` already exists but needs modification to support `kamuy config get <key>`.
 
 ---
 
@@ -165,7 +188,7 @@ cat ~/.kamuy/config.json | jq -r '.api_key'
 
 - Existing env vars still work (`STEWARD_API_KEY`, etc.)
 - Old installations with env vars continue to function
-- Migration not required
+- Migration: If `~/.config/kamuy/` exists, `kamuy init` will migrate config to `~/.kamuy/`
 
 ---
 
