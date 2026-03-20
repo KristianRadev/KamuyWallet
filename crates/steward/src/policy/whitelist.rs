@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// A whitelisted address entry with metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WhitelistEntry {
     /// Human-readable label (e.g., "OpenAI", "AWS")
     pub label: String,
@@ -56,7 +56,13 @@ impl Whitelist {
         self.0.insert(address.into(), WhitelistEntry::new(label));
     }
 
-    /// Update total sent amount
+    /// Remove an address from the whitelist
+    pub fn remove(&mut self, address: &str) -> Option<WhitelistEntry> {
+        self.0.remove(address)
+    }
+
+    /// Update total sent amount.
+    /// If the address is not in the whitelist, this is a no-op.
     pub fn update_total_sent(&mut self, address: &str, amount: u64) {
         if let Some(entry) = self.0.get_mut(address) {
             entry.total_sent = entry.total_sent.saturating_add(amount);
@@ -105,5 +111,40 @@ mod tests {
 
         whitelist.update_total_sent("0x1234", 500);
         assert_eq!(whitelist.get("0x1234").unwrap().total_sent, 1500);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut whitelist = Whitelist::new();
+        whitelist.add("0x1234", "Test");
+        assert!(whitelist.contains("0x1234"));
+
+        let removed = whitelist.remove("0x1234");
+        assert!(removed.is_some());
+        assert_eq!(removed.unwrap().label, "Test");
+        assert!(!whitelist.contains("0x1234"));
+
+        // Remove non-existent returns None
+        let not_found = whitelist.remove("0xnonexistent");
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_update_nonexistent_address() {
+        let mut whitelist = Whitelist::new();
+        // Should silently do nothing
+        whitelist.update_total_sent("0xnonexistent", 1000);
+        assert!(whitelist.is_empty());
+    }
+
+    #[test]
+    fn test_update_total_sent_saturating() {
+        let mut whitelist = Whitelist::new();
+        whitelist.add("0x1234", "Test");
+        // Set to near max
+        whitelist.get_mut("0x1234").unwrap().total_sent = u64::MAX - 10;
+        // Adding more should saturate at u64::MAX
+        whitelist.update_total_sent("0x1234", 100);
+        assert_eq!(whitelist.get("0x1234").unwrap().total_sent, u64::MAX);
     }
 }
