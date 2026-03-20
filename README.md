@@ -8,9 +8,19 @@ Kamuy Wallet uses a **2-of-3 threshold signature scheme** where:
 
 - **Agent** (Key #1): The AI agent that executes tasks and initiates transactions. This is external software provided by the user - Kamuy only provides the key share.
 - **Steward** (Key #2): An automated policy engine that validates and co-signs compliant transactions. Runs as a separate Rust service.
-- **User** (Key #3): The ultimate owner who retains control for recovery and overrides.
+- **User** (Key #3): The ultimate owner who retains control for recovery and high-risk approvals.
 
-The Steward automatically co-signs transactions that comply with user-defined policies, enabling the AI agent to operate autonomously within defined boundaries.
+### Key Insight: 2-of-3 Auto-Signing
+
+When a transaction **passes all policy checks** (whitelisted address + within limits):
+- **Steward + Agent** can sign together = **2 keys**
+- This satisfies the 2-of-3 threshold
+- **No user interaction required**
+
+The User key is only needed for:
+1. New addresses over the auto-add threshold (Tier 3)
+2. Policy changes (Tier 3)
+3. Wallet recovery
 
 ## Key Design Decisions
 
@@ -27,11 +37,12 @@ The Agent communicates with the Steward via **synchronous HTTP API calls**:
 - No callback URLs or async notification mechanisms required
 - Simple request/response pattern compatible with any HTTP client
 
-### 3. Stablecoin-Only Support
-Kamuy Wallet is designed exclusively for stablecoin payments:
-- **USDC** (primary)
-- **USDT**
-- **DAI**
+### 3. USDC-Only (v2.0)
+
+Kamuy Wallet v2.0 supports **USDC only**:
+- Simplified policy enforcement
+- Gasless transactions via Pimlico sponsorship
+- 6 decimal precision
 
 This simplifies policy enforcement, reduces volatility risk, and ensures predictable transaction values.
 
@@ -63,29 +74,77 @@ The system tries channels in order until one responds.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Transaction Flow
+## Transaction Flow & Approval Levels
 
-### Auto-Approved Transaction (Compliant with Policy)
+The Steward uses a **3-tier approval system** based on policy evaluation:
+
+### Tier 1: Auto-Approved (No User Interaction)
+
+When a transaction passes all policy checks:
+- Address is **whitelisted**
+- Amount is **within limits** (per-tx, daily, weekly)
 
 ```
 ┌──────┐                    ┌─────────┐                    ┌──────────┐
 │Agent │ ──POST /tx/sign──► │ Steward │ ──Validate Policy──┤  PASS    │
-│      │                    │         │                    │  SIGN    │
-│      │ ◄──Signature───── │         │ ◄──Co-sign tx─────┤          │
+│      │                    │         │                    │          │
+│      │                    │         │   Steward + Agent  │  SIGN    │
+│      │ ◄──Signature───── │         │   = 2-of-3 keys   │          │
 └──────┘                    └─────────┘                    └──────────┘
+
+→ User sees: "Purchased $47 in OpenAI API credits. ✓"
 ```
 
-### Approval Required Transaction (Policy Violation)
+**No user action required.** Steward and Agent keys together satisfy the 2-of-3 threshold.
+
+### Tier 2: Telegram Button (Click Approval)
+
+When a transaction violates policy but is **low risk**:
+- Over per-tx limit (but to **whitelisted** address)
+- New address **under** auto-add threshold
 
 ```
 ┌──────┐                    ┌─────────┐                    ┌───────────────┐
-│Agent │ ──POST /tx/sign──► │ Steward │ ──Validate Policy──┤   VIOLATION   │
+│Agent │ ──POST /tx/sign──► │ Steward │ ──Notify User─────►│ Telegram      │
 │      │                    │         │                    │               │
-│      │ ◄──Wait/Pending─── │         │ ──Request Approval─┤ Terminal/TG   │
-│      │                    │         │ ◄──User approves───┤               │
-│      │ ◄──Signature───── │         │ ──Co-sign tx───────┤   SIGN        │
+│      │                    │         │   (No password)   │ [Approve] [Reject] │
+│      │ ◄──Signature───── │         │ ◄──User clicks──────┤               │
 └──────┘                    └─────────┘                    └───────────────┘
+
+→ User sees: "This $150 exceeds your $100 limit. Approve anyway?"
 ```
+
+**No password entered.** User just clicks [Approve] or [Reject].
+
+### Tier 3: Terminal Password (Highest Security)
+
+For **high-risk** operations:
+- New address **over** auto-add threshold
+- Policy changes
+
+```
+┌──────┐                    ┌─────────┐                    ┌───────────────┐
+│Agent │ ──POST /tx/sign──► │ Steward │ ──Request Terminal─►│ CLI Terminal  │
+│      │                    │         │                    │               │
+│      │                    │         │   User runs:       │ $ kamuy approve│
+│      │                    │         │   kamuy approve    │ Password: ****│
+│      │ ◄──Signature───── │         │ ◄──After password───┤               │
+└──────┘                    └─────────┘                    └───────────────┘
+
+→ User sees: "Run 'kamuy approve address <id>' in terminal"
+```
+
+**Password ALWAYS in terminal, NEVER in Telegram.**
+
+### Approval Level Summary
+
+| Scenario | Address | Amount | User Action | Location |
+|----------|---------|--------|-------------|----------|
+| Within policy | Whitelisted | Under limit | **NONE** | Auto-approved |
+| Over per-tx limit | Whitelisted | Any | Click button | Telegram |
+| New address | Not whitelisted | Under threshold | Click button | Telegram |
+| New address | Not whitelisted | Over threshold | Enter password | **Terminal** |
+| Policy change | N/A | N/A | Enter password | **Terminal** |
 
 ## Project Structure
 
@@ -96,13 +155,12 @@ kamuy-wallet/
 │   ├── steward/            # Steward service - policy engine & API (Rust)
 │   │   ├── src/
 │   │   │   ├── api/        # HTTP API routes (synchronous)
-│   │   │   ├── approval/   # Pluggable approval channels
+│   │   │   ├── approval/   # Approval channels (terminal + inline)
 │   │   │   ├── config/     # Configuration management
-│   │   │   ├── policy/     # Policy engine (stablecoin-only)
+│   │   │   ├── policy/     # Policy engine (USDC only in v2.0)
 │   │   │   ├── queue/      # Transaction queue
 │   │   │   ├── signing/    # MPC signing coordination
-│   │   │   ├── storage/    # SQLite/PostgreSQL storage
-│   │   │   └── telegram/   # Telegram bot integration
+│   │   │   └── storage/    # SQLite/PostgreSQL storage
 │   │   └── Cargo.toml
 │   ├── cli/                # Command-line interface (Rust)
 │   └── smart-account/      # Smart contract utilities
@@ -156,29 +214,41 @@ export STEWARD_TELEGRAM_ENABLED=true
 ### 2. Create a Wallet
 
 ```bash
-./target/release/kamuy-cli wallet create
+# v2.0: One-command setup with terminal password
+./target/release/kamuy init --email user@example.com
+
+Email for backup: user@example.com
+Set wallet password: ********
+Confirm password:  ********
+
+✓ Wallet created
+✓ Backup sent to user@example.com
+✓ Steward running (unlocked)
+
+Your wallet address: 0xABC...1234
 ```
 
 This generates:
 - Agent Key (give this to your AI agent software)
 - Steward Key (encrypted, used by Steward service)
-- User Key (encrypted, for recovery)
+- User Key (encrypted, for recovery and Tier 3 approvals)
 
-### 3. Set Policy
+### 3. Set Policy (Conversational)
 
+Tell your agent:
+> "Set up my wallet policy"
+
+The agent will guide you through:
+- Max per transaction
+- Daily limit
+- Weekly limit
+- Auto-add threshold
+
+Then approve in terminal:
 ```bash
-./target/release/kamuy-cli policy set --file policy.json
-```
-
-Example `policy.json`:
-```json
-{
-  "max_per_tx": "100.00",
-  "max_daily": "1000.00",
-  "require_approval_above": "50.00",
-  "allowed_tokens": ["USDC", "USDT", "DAI"],
-  "whitelist": ["0x1234...", "openai.com"]
-}
+kamuy approve policy setup-001
+Password: ********
+✓ Policy confirmed. Wallet active.
 ```
 
 ### 4. Configure Your Agent
@@ -232,10 +302,10 @@ Response:
 | `STEWARD_API_KEY` | Yes | Secret key for Agent authentication |
 | `STEWARD_DATABASE_URL` | No | Database URL (default: `sqlite://./steward.db`) |
 | `STEWARD_API_PORT` | No | API port (default: 8080) |
-| `STEWARD_TELEGRAM_TOKEN` | No | Telegram bot token |
-| `STEWARD_TELEGRAM_ENABLED` | No | Enable Telegram bot (default: false) |
 | `STEWARD_POLICY_FILE` | No | Path to policy JSON file |
 | `STEWARD_APPROVAL_TIMEOUT_SECS` | No | Approval timeout in seconds (default: 300) |
+| `STEWARD_CHAIN_ID` | No | Chain ID (default: 84532 for Base Sepolia) |
+| `STEWARD_PIMLICO_API_KEY` | No | Pimlico API key for gas sponsorship |
 
 ## API Reference
 
@@ -337,47 +407,66 @@ Health check endpoint.
 
 ## Policy Change Approval Flow
 
-The Agent can request policy changes, but they always require User approval via Telegram:
+The Agent can request policy changes, but they **always require terminal password** (Tier 3):
 
 ```
 ┌──────┐                    ┌─────────┐                    ┌───────────────┐
-│Agent │ ──POST /policy/request──► │ Steward │ ──Notification──►│ Telegram      │
+│Agent │ ──POST /policy/request──► │ Steward │ ──Tell User──────►│ Agent Chat    │
 │      │                    │         │                    │               │
-│      │ ◄──Pending Approval────── │         │ ◄──User approves───┤ [Approve] [Reject] │
-│      │                    │         │                    │               │
-│      │ ◄──Policy Updated────────── │         │                    │               │
+│      │                    │         │   "Run kamuy       │               │
+│      │                    │         │    approve policy │               │
+│      │                    │         │    <id>"          │               │
 └──────┘                    └─────────┘                    └───────────────┘
+
+                                                                  ↓
+                                                           ┌───────────────┐
+                                                           │ Terminal      │
+                                                           │               │
+                                                           │ $ kamuy approve│
+                                                           │ Password: ****│
+                                                           │ ✓ Updated     │
+                                                           └───────────────┘
 ```
 
-**Security:** The Agent cannot bypass this flow. Policy changes are always sent to Telegram for User approval with password verification.
+**Security:**
+- Agent cannot bypass this flow
+- Password **always** entered in terminal, never in Telegram
+- This is Tier 3 (TerminalPassword) approval
 
 ## Approval Channels
 
-### Terminal (Development/Testing)
+### v2.0: Inline in Agent's Chat
 
-When a transaction requires approval and the Steward is running in an interactive terminal:
+All communication happens in the user's **existing agent chat** (e.g., OpenClaw Telegram bot). There is **no separate Kamuy Telegram bot**.
 
+For Tier 2 (Telegram Button):
+- Agent sends message with inline buttons: [Approve] [Reject]
+- User clicks button, transaction proceeds
+- No password entered in Telegram
+
+For Tier 3 (Terminal Password):
+- Agent tells user: "Run 'kamuy approve address <id>' in terminal"
+- User opens terminal, enters password there
+- Password **never** sent to Telegram
+
+### Terminal Commands
+
+```bash
+# Unlock wallet after restart
+kamuy unlock
+Password: ********
+✓ Wallet unlocked. Agent can now spend.
+
+# Approve policy change (Tier 3)
+kamuy approve policy <id>
+Password: ********
+✓ Policy updated.
+
+# Approve new address over threshold (Tier 3)
+kamuy approve address <id>
+Password: ********
+✓ Address added to whitelist.
 ```
-╔═══════════════════════════════════════════════════════════╗
-║           TRANSACTION REQUIRES APPROVAL                   ║
-╠═══════════════════════════════════════════════════════════╣
-║ Transaction ID: uuid                                      ║
-║ To:           0x742d...                                   ║
-║ Amount:       50.00 USDC                                  ║
-║ Chain:        Base (ID: 8453)                             ║
-║ Reason:       Amount exceeds auto-approve limit           ║
-╚═══════════════════════════════════════════════════════════╝
-
-Approve this transaction? [y/N/timeout]:
-```
-
-### Telegram (Production)
-
-Enable Telegram for mobile notifications:
-1. Create a bot via @BotFather
-2. Set `STEWARD_TELEGRAM_TOKEN` and `STEWARD_TELEGRAM_ENABLED=true`
-3. Start the bot with `/start`
-4. Approve transactions via inline buttons
 
 ## License
 
