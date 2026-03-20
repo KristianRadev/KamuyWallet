@@ -124,9 +124,6 @@ pub enum Command {
     /// Delete the wallet
     #[command(description = "Delete the existing wallet and all keys")]
     DeleteWallet,
-    /// Send USDC
-    #[command(description = "Send USDC to an address (usage: /send <address> <amount>)")]
-    Send,
 }
 
 /// Handle bot commands
@@ -143,9 +140,6 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command, state: Arc<cra
     }
 
     info!(chat_id = msg.chat.id.0, command = ?cmd, "Received Telegram command");
-
-    // Get message text for commands that need arguments
-    let text = msg.text().unwrap_or("");
 
     match cmd {
         Command::Start => {
@@ -186,7 +180,6 @@ Security:
 /history - Show last 5 transactions
 /wallet - Show wallet address and balance
 /createwallet - Create a new smart wallet (Base Sepolia)
-/send <address> <amount> - Send USDC to an address
 
 When a transaction needs approval, you'll receive a notification with Approve/Reject buttons."#;
 
@@ -214,9 +207,6 @@ When a transaction needs approval, you'll receive a notification with Approve/Re
         }
         Command::DeleteWallet => {
             handle_delete_wallet(&bot, &msg, &state).await?;
-        }
-        Command::Send => {
-            handle_send(&bot, &msg, &state, text).await?;
         }
     }
 
@@ -1461,51 +1451,7 @@ mod tests {
         assert_eq!(private_keys.len(), 20, "All private keys should be unique");
     }
 
-    /// Validation test: verify /send argument parsing
-    #[test]
-    fn test_parse_send_args_valid() {
-        // Valid address and amount
-        let result = parse_send_args("/send 0x1234567890123456789012345678901234567890 1.5");
-        assert!(result.is_some());
-        let args = result.unwrap();
-        assert_eq!(args.to, "0x1234567890123456789012345678901234567890");
-        assert_eq!(args.amount, "1.5");
-
-        // Valid with different amount formats
-        let result = parse_send_args("/send 0xabcdef0123456789abcdef0123456789abcdef01 0.001");
-        assert!(result.is_some());
-        let args = result.unwrap();
-        assert_eq!(args.amount, "0.001");
-
-        // Valid with integer amount
-        let result = parse_send_args("/send 0x0000000000000000000000000000000000000001 100");
-        assert!(result.is_some());
-        let args = result.unwrap();
-        assert_eq!(args.amount, "100");
     }
-
-    #[test]
-    fn test_parse_send_args_invalid() {
-        // Missing arguments
-        assert!(parse_send_args("/send").is_none());
-        assert!(parse_send_args("/send 0x1234").is_none());
-
-        // Invalid address - too short
-        assert!(parse_send_args("/send 0x1234 1.0").is_none());
-
-        // Invalid address - no 0x prefix
-        assert!(parse_send_args("/send 1234567890123456789012345678901234567890 1.0").is_none());
-
-        // Invalid address - wrong length
-        assert!(parse_send_args("/send 0x123456789012345678901234567890123456789 1.0").is_none());
-
-        // Invalid amount - not a number
-        assert!(parse_send_args("/send 0x1234567890123456789012345678901234567890 abc").is_none());
-
-        // Too many arguments
-        assert!(parse_send_args("/send 0x1234 1.0 extra").is_none());
-    }
-}
 /// Handle /deletewallet command - deletes existing wallet from storage
 async fn handle_delete_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppState>) -> Result<()> {
     let chat_id = msg.chat.id;
@@ -1555,151 +1501,6 @@ You can now create a new wallet with /createwallet"#,
     Ok(())
 }
 
-/// Arguments for /send command
-struct SendArgs {
-    to: String,
-    amount: String,
-}
-
-/// Parse arguments for /send command
-fn parse_send_args(text: &str) -> Option<SendArgs> {
-    let parts: Vec<&str> = text.split_whitespace().collect();
-    if parts.len() != 3 {
-        return None;
-    }
-    let to = parts[1].to_string();
-    let amount = parts[2].to_string();
-
-    // Validate address format (must be 0x + 40 hex chars)
-    if !to.starts_with("0x") || to.len() != 42 {
-        return None;
-    }
-    // Validate amount is a valid number
-    if amount.parse::<f64>().is_err() {
-        return None;
-    }
-
-    Some(SendArgs { to, amount })
-}
-
-/// Handle /send command
-async fn handle_send(
-    bot: &Bot,
-    msg: &Message,
-    state: &Arc<crate::AppState>,
-    text: &str,
-) -> Result<()> {
-    let chat_id = msg.chat.id;
-
-    // Parse arguments
-    let args = match parse_send_args(text) {
-        Some(a) => a,
-        None => {
-            bot.send_message(
-                chat_id,
-                r#"❌ Invalid usage.
-
-📝 Usage: /send <address> <amount>
-
-Example: /send 0x1234567890123456789012345678901234567890 1.5
-
-• Address must be a valid Ethereum address (0x + 40 hex characters)
-• Amount is in USDC (e.g., 1.5 = 1.5 USDC)"#
-            )
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            return Ok(());
-        }
-    };
-
-    // Check if wallet exists
-    let wallet = state.storage.get_wallet().await
-        .map_err(|e| StewardError::Database(e.to_string()))?;
-
-    let wallet = match wallet {
-        Some(w) => w,
-        None => {
-            bot.send_message(chat_id, "⚠️ No wallet configured.\n\nUse /createwallet to create one first.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            return Ok(());
-        }
-    };
-
-    // Check if signing keys are loaded
-    if !state.signing_coordinator.is_keys_loaded().await {
-        bot.send_message(
-            chat_id,
-            "⚠️ Signing keys not loaded.\n\nPlease load keys via the API before sending transactions."
-        )
-        .await
-        .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        return Ok(());
-    }
-
-    // Convert amount to USDC micros (6 decimals)
-    let amount_f64 = args.amount.parse::<f64>()
-        .map_err(|_| StewardError::Validation("Invalid amount format".to_string()))?;
-    let amount_micros = (amount_f64 * 1_000_000.0) as u64;
-    let amount_str = amount_micros.to_string();
-
-    // Create transaction request
-    let request = crate::types::TransactionRequest {
-        id: crate::types::TransactionId::new(),
-        request_id: format!("tg_send_{}", chrono::Utc::now().timestamp()),
-        to: args.to.clone(),
-        value: amount_str,
-        token: "USDC".to_string(),
-        chain_id: wallet.chain_id,
-        nonce: 0, // Will be set by the executor
-        gas_price: None,
-        gas_limit: None,
-        data: None,
-        received_at: chrono::Utc::now(),
-        agent_id: "telegram_user".to_string(),
-        agent_signature: None,
-    };
-
-    // Add to queue
-    let record = state.queue.write().await.submit(request.clone()).await
-        .map_err(|e| StewardError::Queue(e.to_string()))?;
-
-    let tx_id = record.id;
-
-    let response = format!(
-        r#"✅ Transaction Queued!
-
-📤 Send USDC
-━━━━━━━━━━━━━━━
-📍 From: {}
-📍 To: {}
-💰 Amount: {} USDC
-⛓ Chain: Base Sepolia (84532)
-
-🔄 Transaction ID: {}
-
-⏳ Processing...
-Use /pending to check status"#,
-        super::truncate_address(&wallet.address),
-        super::truncate_address(&args.to),
-        args.amount,
-        &tx_id.to_string()[..8]
-    );
-
-    bot.send_message(chat_id, response)
-        .await
-        .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-    info!(
-        chat_id = chat_id.0,
-        tx_id = %tx_id,
-        to = %args.to,
-        amount = %args.amount,
-        "Transaction queued via /send command"
-    );
-
-    Ok(())
-}
 
 /// Handle policy change callback: "policy_approve:uuid" or "policy_reject:uuid"
 async fn handle_policy_change_callback(
