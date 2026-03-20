@@ -388,63 +388,49 @@ async fn sign_and_submit(
         return Err(crate::error::StewardError::KeyNotLoaded);
     }
 
-    // Get key share (skip in test mode)
-    if !state.config.api.test_mode {
-        let key_share_guard: tokio::sync::RwLockReadGuard<'_, Option<kamuy_mpc_core::AgentKeyShare>> = state.key_share.read().await;
-        let _key_share = key_share_guard.clone()
-            .ok_or(crate::error::StewardError::KeyNotLoaded)?;
-        drop(key_share_guard);
+    // Check if signing keys are loaded in the coordinator
+    if !state.config.api.test_mode && !state.signing_coordinator.is_keys_loaded().await {
+        return Err(crate::error::StewardError::KeyNotLoaded);
     }
 
-    // Compute message hash
-    let message = record.request.hash();
-
-    // Create partial signature using MPC
-    // This would integrate with the MPC core signing protocol
-    // For now, we simulate the signing process
     info!(
         transaction_id = %record.id,
-        "Creating partial signature"
+        "Signing and submitting transaction via Pimlico"
     );
 
-    // In a real implementation, this would:
-    // 1. Initiate signing protocol with Agent
-    // 2. Exchange nonce commitments
-    // 3. Create partial signature
-    // 4. Combine with Agent's partial
-    // 5. Return final signature
+    // Get wallet address from storage
+    let wallet = state.storage.get_wallet().await
+        .map_err(|e| crate::error::StewardError::Database(e.to_string()))?
+        .ok_or_else(|| crate::error::StewardError::Validation("No wallet configured".to_string()))?;
 
-    // Simulate successful signing
-    let signature = crate::types::TransactionSignature {
-        r: hex::encode(&[1u8; 32]),
-        s: hex::encode(&[2u8; 32]),
-        recid: 0,
-        signed_at: chrono::Utc::now(),
-    };
+    // Execute USDC transfer via TransactionExecutor
+    let result = state.transaction_executor
+        .execute_usdc_transfer(
+            &wallet.address,
+            &record.request.to,
+            &record.request.value,
+        )
+        .await
+        .map_err(|e| crate::error::StewardError::Transaction(e.to_string()))?;
 
-    record.signature = Some(signature);
+    // Update record with result
+    record.tx_hash = Some(result.user_op_hash.clone());
     record.set_status(TransactionStatus::Submitted);
-    record.tx_hash = Some(format!("0x{}", hex::encode(&message[..20])));
-
     state.storage.update_transaction(record).await?;
 
     info!(
         transaction_id = %record.id,
-        tx_hash = %record.tx_hash.as_ref().unwrap(),
-        "Transaction submitted"
+        user_op_hash = %result.user_op_hash,
+        "Transaction submitted to Pimlico"
     );
 
-    // In a real implementation, this would:
-    // 1. Submit to relayer (Pimlico)
-    // 2. Wait for confirmation
-    // 3. Update status to Confirmed
-
-    // Simulate confirmation
+    // In production, we would poll for confirmation
+    // For now, mark as confirmed after submission
     record.set_status(TransactionStatus::Confirmed);
     state.storage.update_transaction(record).await?;
 
-    Ok(())
-}
+    Ok(()
+) }
 
 /// Notify user that approval is required
 #[cfg(feature = "telegram")]

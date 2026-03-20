@@ -411,6 +411,12 @@ pub struct PimlicoConfig {
     pub rpc_url: Option<String>,
     /// Enable gas sponsorship
     pub enabled: bool,
+    /// EntryPoint address (optional, defaults to v0.7)
+    pub entry_point: Option<String>,
+    /// Factory address for smart account deployment
+    pub factory: Option<String>,
+    /// USDC contract address
+    pub usdc: Option<String>,
 }
 
 impl PimlicoConfig {
@@ -420,15 +426,55 @@ impl PimlicoConfig {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(84532); // Base Sepolia default
-        
+
         Ok(Self {
             enabled: api_key.is_some(),
             api_key,
             chain_id,
             rpc_url: std::env::var("STEWARD_PIMLICO_RPC_URL").ok(),
+            entry_point: std::env::var("STEWARD_ENTRY_POINT").ok(),
+            factory: std::env::var("STEWARD_FACTORY").ok(),
+            usdc: std::env::var("STEWARD_USDC").ok(),
         })
     }
-    
+
+    /// Load configuration from a JSON file
+    pub fn from_file(path: &str) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", path, e))?;
+        let json: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {}", path, e))?;
+
+        let api_key = json.get("apiKey")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let chain_id = json.get("chainId")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(84532);
+        let rpc_url = json.get("rpcUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let entry_point = json.get("entryPoint")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let factory = json.get("factory")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let usdc = json.get("usdc")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        Ok(Self {
+            enabled: api_key.is_some(),
+            api_key,
+            chain_id,
+            rpc_url,
+            entry_point,
+            factory,
+            usdc,
+        })
+    }
+
     /// Get the RPC URL for Pimlico
     pub fn get_rpc_url(&self) -> String {
         self.rpc_url.clone().unwrap_or_else(|| {

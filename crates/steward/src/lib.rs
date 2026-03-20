@@ -69,6 +69,8 @@ pub struct AppState {
     pub key_share: std::sync::Arc<tokio::sync::RwLock<Option<kamuy_mpc_core::AgentKeyShare>>>,
     /// Signing coordinator for MPC signing (Agent + Steward keys)
     pub signing_coordinator: std::sync::Arc<signing::SigningCoordinator>,
+    /// Transaction executor for Pimlico integration
+    pub transaction_executor: std::sync::Arc<transaction::TransactionExecutor>,
     /// Approval channel for user confirmations
     pub approval_channel: approval::CompositeApprovalChannel,
     /// Transaction completion notifier (for long-polling)
@@ -105,13 +107,24 @@ impl AppState {
         storage: std::sync::Arc<storage::StewardStorage>,
         approval_channel: approval::CompositeApprovalChannel,
     ) -> Self {
+        // Create signing coordinator
+        let signing_coordinator = std::sync::Arc::new(signing::SigningCoordinator::new());
+
+        // Create transaction executor with Pimlico config
+        let pimlico_config = transaction::ExecutorConfig::from_pimlico_config(&config.pimlico);
+        let transaction_executor = std::sync::Arc::new(
+            transaction::TransactionExecutor::new(pimlico_config, signing_coordinator.clone())
+                .expect("Failed to create TransactionExecutor")
+        );
+
         Self {
             config,
             policy_engine,
             queue,
             storage,
             key_share: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-            signing_coordinator: std::sync::Arc::new(signing::SigningCoordinator::new()),
+            signing_coordinator,
+            transaction_executor,
             approval_channel,
             notifier: std::sync::Arc::new(queue::TransactionNotifier::new()),
             pending_approvals: approval::PendingApprovals::new(),
@@ -128,13 +141,24 @@ impl AppState {
         approval_channel: approval::CompositeApprovalChannel,
         pending_approvals: approval::PendingApprovals,
     ) -> Self {
+        // Create signing coordinator
+        let signing_coordinator = std::sync::Arc::new(signing::SigningCoordinator::new());
+
+        // Create transaction executor with Pimlico config
+        let pimlico_config = transaction::ExecutorConfig::from_pimlico_config(&config.pimlico);
+        let transaction_executor = std::sync::Arc::new(
+            transaction::TransactionExecutor::new(pimlico_config, signing_coordinator.clone())
+                .expect("Failed to create TransactionExecutor")
+        );
+
         Self {
             config,
             policy_engine,
             queue,
             storage,
             key_share: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
-            signing_coordinator: std::sync::Arc::new(signing::SigningCoordinator::new()),
+            signing_coordinator,
+            transaction_executor,
             approval_channel,
             notifier: std::sync::Arc::new(queue::TransactionNotifier::new()),
             pending_approvals,

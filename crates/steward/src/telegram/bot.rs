@@ -42,6 +42,7 @@ pub async fn start(state: Arc<crate::AppState>) -> Result<()> {
         BotCommand::new("pending", "List transactions awaiting approval"),
         BotCommand::new("history", "Show last 5 transactions"),
         BotCommand::new("wallet", "Show wallet address and balance"),
+        BotCommand::new("send", "Send USDC to an address"),
     ];
     bot.set_my_commands(commands)
         .await

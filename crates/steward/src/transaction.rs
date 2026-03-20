@@ -32,6 +32,12 @@ pub struct ExecutorConfig {
     pub chain_id: u64,
     /// RPC URL
     pub rpc_url: String,
+    /// EntryPoint address
+    pub entry_point: String,
+    /// Factory address for smart account deployment
+    pub factory: String,
+    /// USDC contract address
+    pub usdc: String,
 }
 
 impl Default for ExecutorConfig {
@@ -40,6 +46,23 @@ impl Default for ExecutorConfig {
             pimlico_api_key: String::new(),
             chain_id: CHAIN_ID_BASE_SEPOLIA,
             rpc_url: "https://api.pimlico.io/v1/base-sepolia/rpc".to_string(),
+            entry_point: ENTRY_POINT_V07.to_string(),
+            factory: FACTORY_BASE_SEPOLIA.to_string(),
+            usdc: USDC_BASE_SEPOLIA.to_string(),
+        }
+    }
+}
+
+impl ExecutorConfig {
+    /// Create ExecutorConfig from Steward's PimlicoConfig
+    pub fn from_pimlico_config(config: &crate::config::PimlicoConfig) -> Self {
+        Self {
+            pimlico_api_key: config.api_key.clone().unwrap_or_default(),
+            chain_id: config.chain_id,
+            rpc_url: config.get_rpc_url(),
+            entry_point: config.entry_point.clone().unwrap_or_else(|| ENTRY_POINT_V07.to_string()),
+            factory: config.factory.clone().unwrap_or_else(|| FACTORY_BASE_SEPOLIA.to_string()),
+            usdc: config.usdc.clone().unwrap_or_else(|| USDC_BASE_SEPOLIA.to_string()),
         }
     }
 }
@@ -439,6 +462,129 @@ pub enum TransactionStatus {
     Pending,
     Included,
     Failed,
+}
+
+impl TransactionExecutor {
+    /// Check if a smart account is deployed (has code)
+    pub async fn is_account_deployed(&self, address: &str) -> Result<bool> {
+        let url = format!("{}{}", self.config.rpc_url, self.config.pimlico_api_key);
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getCode",
+            "params": [address, "latest"],
+            "id": 1
+        });
+
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StewardError::Network(e.to_string()))?;
+
+        let json: serde_json::Value = response.json().await
+            .map_err(|e| StewardError::Network(e.to_string()))?;
+
+        let code = json.get("result")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0x");
+
+        Ok(code != "0x" && code.len() > 2)
+    }
+
+    /// Get the predicted sender address for a smart account
+    /// This calls the factory's getAddress function
+    pub async fn get_sender_address(
+        &self,
+        agent_address: &str,
+        steward_address: &str,
+        user_address: &str,
+        salt: &[u8; 32],
+    ) -> Result<String> {
+        let url = format!("{}{}", self.config.rpc_url, self.config.pimlico_api_key);
+
+        // Encode the call to factory's getAddress(agent, steward, user, salt)
+        // Function selector: keccak256("getAddress(address,address,address,bytes32)")[:4]
+        // For now, use the factory address from config
+        let factory = &self.config.factory;
+
+        // Build call data for getAddress(address,address,address,bytes32)
+        // Selector: we'll compute it or use known selector
+        let get_address_selector = "0x25350f08"; // getAddress(address,address,address,bytes32)
+
+        let agent_padded = format!("{:0>64}", agent_address.trim_start_matches("0x"));
+        let steward_padded = format!("{:0>64}", steward_address.trim_start_matches("0x"));
+        let user_padded = format!("{:0>64}", user_address.trim_start_matches("0x"));
+        let salt_hex = hex::encode(salt);
+
+        let call_data = format!(
+            "{}{}{}{}{}",
+            get_address_selector,
+            agent_padded,
+            steward_padded,
+            user_padded,
+            salt_hex
+        );
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": factory,
+                "data": call_data
+            }, "latest"],
+            "id": 1
+        });
+
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StewardError::Network(e.to_string()))?;
+
+        let json: serde_json::Value = response.json().await
+            .map_err(|e| StewardError::Network(e.to_string()))?;
+
+        let result = json.get("result")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| StewardError::Pimlico("No result from getAddress".to_string()))?;
+
+        // Extract the address (last 20 bytes of the 32-byte result)
+        let addr_hex = &result[result.len().saturating_sub(40)..];
+        Ok(format!("0x{}", addr_hex))
+    }
+
+    /// Build init_code for smart account deployment
+    /// init_code = factory_address + encoded_createAccount(agent, steward, user, salt)
+    pub fn build_init_code(
+        &self,
+        agent_address: &str,
+        steward_address: &str,
+        user_address: &str,
+        salt: &[u8; 32],
+    ) -> String {
+        let factory = &self.config.factory;
+
+        // createAccount(address,address,address,bytes32) selector
+        let create_account_selector = "0x785ffb37";
+
+        let agent_padded = format!("{:0>64}", agent_address.trim_start_matches("0x"));
+        let steward_padded = format!("{:0>64}", steward_address.trim_start_matches("0x"));
+        let user_padded = format!("{:0>64}", user_address.trim_start_matches("0x"));
+        let salt_hex = hex::encode(salt);
+
+        format!(
+            "{}{}{}{}{}{}",
+            factory,
+            create_account_selector,
+            agent_padded,
+            steward_padded,
+            user_padded,
+            salt_hex
+        )
+    }
 }
 
 /// Parse hex string to u128
