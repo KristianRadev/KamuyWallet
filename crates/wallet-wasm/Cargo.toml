@@ -1,0 +1,38 @@
+[package]
+name = "kamuy-wallet-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "WASM bindings for Kamuy Wallet"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["wee_alloc"]
+wee_alloc = ["dep:wee_alloc"]
+
+[dependencies]
+kamuy-mpc-core = { path = "../mpc-core", features = ["wasm"] }
+kamuy-wallet-core = { path = "../wallet-core" }
+
+# WASM
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+js-sys = { workspace = true }
+web-sys = { workspace = true }
+getrandom = { workspace = true }
+wee_alloc = { version = "0.4", optional = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+
+# Console logging
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"

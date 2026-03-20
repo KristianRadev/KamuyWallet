@@ -1,0 +1,112 @@
+[package]
+name = "kamuy-steward"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["Kris <kris@kamuy.io>"]
+license = "MIT OR Apache-2.0"
+description = "Steward Service for Kamuy Wallet - Policy engine and transaction validator"
+keywords = ["mpc", "wallet", "steward", "policy", "telegram"]
+categories = ["cryptography", "authentication", "web-programming"]
+
+[features]
+default = ["telegram"]
+telegram = ["teloxide"]
+
+[dependencies]
+# Core MPC library
+kamuy-mpc-core = { path = "../mpc-core" }
+
+# Async runtime
+tokio = { version = "1.49", features = ["full"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+futures = "0.3"
+
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-br", "compression-gzip", "limit"] }
+hyper = { version = "1.0", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "postgres", "migrate", "chrono"] }
+
+# Telegram bot
+teloxide = { version = "0.13", features = ["macros", "webhooks"], optional = true }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Cryptography
+sha2 = "0.10"
+sha3 = "0.10"
+blake3 = "1.5"
+hex = "0.4"
+base64 = "0.22"
+rand = { version = "0.8", features = ["getrandom"] }
+subtle = "2.5"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Configuration
+config = "0.14"
+dotenv = "0.15"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+derive_more = "0.99"
+
+# Validation
+validator = { version = "0.16", features = ["derive"] }
+
+# Rate limiting
+governor = "0.2"
+
+# Scheduling
+tokio-cron-scheduler = "0.10"
+
+# UUID
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Regex for pattern matching
+regex = "1.10"
+
+# Ethereum types
+ethers = { version = "2.0", features = ["rustls"] }
+k256 = "0.13"
+
+# Password hashing
+argon2 = "0.5"
+
+# Zeroize
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Terminal detection for interactive approval
+atty = "0.2"
+
+# Notifications
+notify-rust = { version = "4.11", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+wiremock = "0.6"
+mockall = "0.12"
+criterion = "0.5"
+tempfile = "3.10"
+
+[[bench]]
+name = "steward_bench"
+harness = false

@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "max_per_tx": "100000000",
+  "max_daily": "1000000000",
+  "max_weekly": "5000000000",
+  "max_monthly": "20000000000",
+  "require_approval_above": "50000000",
+  "allowed_tokens": ["USDC", "USDT", "DAI", "PYUSD"],
+  "whitelist": [],
+  "blocklist": [],
+  "time_windows": [
+    {
+      "days": ["mon", "tue", "wed", "thu", "fri"],
+      "start": "09:00",
+      "end": "18:00"
+    }
+  ],
+  "rate_limit_per_hour": 10,
+  "rate_limit_per_day": 100,
+  "max_slippage_bps": 100,
+  "allowed_contract_methods": [],
+  "notify_on_approval": true,
+  "notify_on_rejection": true
+}

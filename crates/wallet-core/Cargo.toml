@@ -1,0 +1,42 @@
+[package]
+name = "kamuy-wallet-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core wallet library for Kamuy Wallet"
+
+[features]
+default = ["std"]
+std = ["kamuy-mpc-core/std"]
+wasm = ["kamuy-mpc-core/wasm"]
+
+[dependencies]
+kamuy-mpc-core = { path = "../mpc-core" }
+
+# Async
+tokio = { workspace = true, features = ["sync", "rt"] }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tokio-test = { workspace = true }
+tracing-subscriber = { workspace = true }
