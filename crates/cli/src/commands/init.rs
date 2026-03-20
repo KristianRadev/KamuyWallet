@@ -16,36 +16,40 @@ pub async fn execute(
     chain: String,
     email: Option<String>,
     output: Option<String>,
+    reset: bool,
 ) -> Result<()> {
-    println!("{}", "Kamuy Wallet v2.0 - Initializing...".bold().cyan());
+    println!("{}", "Kamuy Wallet v2.0".bold().cyan());
     println!();
 
-    // Step 1: Check if wallet already exists
-    if ctx.has_user_key() {
-        print_warning("A wallet already exists. Creating a new one will overwrite it.");
-        if !confirm("Do you want to continue?")? {
-            println!("Aborted.");
-            return Ok(());
+    // Step 1: Check if wallet already exists (using new SimpleConfig check)
+    if crate::config::SimpleConfig::wallet_exists()? && !reset {
+        print_warning("A wallet already exists at ~/.kamuy/wallet.json");
+        println!();
+        println!("  To check your wallet: kamuy status");
+        println!("  To create a new wallet: kamuy init --reset");
+        return Ok(());
+    }
+
+    // Handle reset
+    if reset {
+        let data_dir = crate::config::SimpleConfig::data_dir()?;
+        if data_dir.exists() {
+            print_info("Resetting wallet...");
+            // Stop steward first if running
+            let _ = stop_steward_if_running().await;
+            std::fs::remove_dir_all(&data_dir)?;
         }
     }
 
-    // Step 2: Check Steward API connection
-    let spinner = create_spinner("Connecting to Steward API...");
-    match ctx.steward.health().await {
-        Ok(health) => {
-            let msg = format!("Connected to Steward v{}", health.version);
-            spinner.finish_with_message(msg.green().to_string());
-        }
-        Err(e) => {
-            spinner.finish_with_message("Failed to connect".to_string());
-            print_error(&format!("Cannot connect to Steward API: {}", e));
-            print_info("Make sure Steward is running on localhost:8080");
-            print_info("Run 'kamuy-steward' or set STEWARD_URL environment variable");
-            return Err(anyhow::anyhow!("Steward API not available"));
-        }
+    // Step 2: Migrate from old config if exists
+    if let Err(e) = crate::config::SimpleConfig::migrate_from_old_config() {
+        print_warning(&format!("Config migration skipped: {}", e));
     }
 
-    // Step 3: Get chain ID
+    // NOTE: Skip old Steward connection check - v2.0 starts Steward
+    // Continue with chain selection
+
+    // Step 3: Get chain ID (from old lines 48-51)
     let chain_id = crate::config::chain_id_from_name(&chain).unwrap_or(8453);
     println!();
     println!("Chain: {} ({})", chain.cyan(), chain_id);
@@ -112,23 +116,60 @@ pub async fn execute(
         print_info("Check your email for the encrypted backup");
     }
 
-    // Step 8: Display results
+    // Step 8: Save simplified config with auto-generated API key
     println!();
-    println!("{}", "Wallet initialized successfully!".green().bold());
+    let spinner = create_spinner("Creating configuration...");
+
+    let simple_config = crate::config::SimpleConfig::generate()?;
+    simple_config.save()?;
+
+    spinner.finish_with_message("Configuration saved!".to_string());
+
+    // Step 9: Start steward daemon
     println!();
-    println!("{}", "Wallet Details:".bold());
+    start_steward(&simple_config).await?;
+
+    // Step 10: Auto-unlock wallet with the password user just entered
+    println!();
+    let spinner = create_spinner("Unlocking wallet...");
+
+    // NOTE: After starting steward, we need to reconnect.
+    // The ctx.steward client was created before steward started.
+    // We create a fresh client for the unlock call.
+    let steward_client = crate::context::StewardClient::new(
+        &simple_config.steward_url,
+        Some(simple_config.api_key.clone()),
+    );
+
+    match steward_client.unlock(&user_password).await {
+        Ok(_) => {
+            spinner.finish_with_message("Wallet unlocked!".green().to_string());
+        }
+        Err(e) => {
+            spinner.finish_with_message("Unlock skipped".yellow().to_string());
+            print_warning(&format!("Could not auto-unlock: {}", e));
+            print_info("Run 'kamuy unlock' manually");
+        }
+    }
+
+    // NOTE: The ctx.steward client is now stale (was created before steward started).
+    // This is acceptable - init completes the setup and exits. Subsequent commands
+    // will load fresh config and create new steward clients.
+
+    // Step 11: Display results
+    println!();
+    print_success("Wallet created successfully!");
+    println!();
+    println!("{}", "Your wallet:".bold());
     println!("  Address: {}", wallet_address.cyan());
-    println!("  Chain: {} ({})", chain, chain_id);
+    println!("  Network: {} ({})", chain, chain_id);
     println!();
 
-    // Display keys with warnings
-    println!("{}", "KEYS (save these securely!):".yellow().bold());
-    println!();
-    println!("  Agent Key (give to your AI agent):");
-    println!("  {}", agent_key.cyan());
-    println!();
-    println!("  User Key (recovery key - keep secret!):");
-    println!("  {}", user_key.cyan());
+    // Display agent key for configuration
+    println!("{}", "Agent configuration:".bold());
+    println!("  Steward URL: http://127.0.0.1:8080");
+    println!("  API Key: {}", simple_config.api_key.dimmed());
+    println!("  Agent Key: {}", agent_key.cyan());
     println!();
 
     // Security warnings
@@ -154,15 +195,123 @@ pub async fn execute(
         print_success(&format!("Keys saved to {}", output_path));
     }
 
-    // Next steps
+    print_info("Your wallet is ready. The Steward is running and unlocked.");
     println!();
-    println!("{}", "Next steps:".bold());
-    println!("  1. Configure your AI agent with the Agent Key");
-    println!("  2. Run 'kamuy unlock' to load your wallet");
-    println!("  3. Run 'kamuy status' to check your wallet");
-    println!("  4. Run 'kamuy policy' to view/update spending limits");
+    println!("Next: Tell your agent \"check my wallet balance\"");
 
     Ok(())
+}
+
+/// Stop steward if running (used during reset)
+async fn stop_steward_if_running() -> Result<()> {
+    let config = match crate::config::SimpleConfig::load()? {
+        Some(c) => c,
+        None => return Ok(()),
+    };
+
+    let pid_path = &config.steward_pid_file;
+    if !pid_path.exists() {
+        return Ok(());
+    }
+
+    let pid_str = std::fs::read_to_string(pid_path)?;
+    if let Ok(pid) = pid_str.trim().parse::<i32>() {
+        #[cfg(unix)]
+        {
+            if unsafe { libc::kill(pid, 0) } == 0 {
+                print_info("Stopping existing steward...");
+                unsafe { libc::kill(pid, libc::SIGTERM) };
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Start steward daemon with proper error handling
+async fn start_steward(config: &crate::config::SimpleConfig) -> Result<()> {
+    let spinner = create_spinner("Starting Steward...");
+
+    // Check for stale PID file
+    let pid_path = &config.steward_pid_file;
+    if pid_path.exists() {
+        let pid_str = std::fs::read_to_string(pid_path)?;
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            #[cfg(unix)]
+            {
+                if unsafe { libc::kill(pid, 0) } == 0 {
+                    spinner.finish_with_message("Already running".yellow().to_string());
+                    print_info(&format!("Steward already running (PID {})", pid));
+                    return Ok(());
+                } else {
+                    std::fs::remove_file(pid_path)?;
+                }
+            }
+        }
+    }
+
+    // Check port availability
+    if !is_port_available(8080) {
+        spinner.finish_with_message("Port in use".red().to_string());
+        print_error("Port 8080 is already in use");
+        print_error("Stop the existing process and try again");
+        return Err(anyhow::anyhow!("Port 8080 in use"));
+    }
+
+    // Find steward binary
+    let steward_path = which::which("kamuy-steward")
+        .or_else(|_| {
+            let exe_dir = std::env::current_exe()?
+                .parent()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine binary directory"))?
+                .to_path_buf();
+            Ok::<_, anyhow::Error>(exe_dir.join("kamuy-steward"))
+        })?;
+
+    if !steward_path.exists() {
+        spinner.finish_with_message("Binary not found".yellow().to_string());
+        print_warning("Could not auto-start Steward (binary not found)");
+        print_info("Run 'kamuy-steward' manually after this completes");
+        return Ok(());
+    }
+
+    let data_dir = crate::config::SimpleConfig::data_dir()?;
+
+    // Start steward in background
+    let mut child = std::process::Command::new(&steward_path)
+        .env("STEWARD_API_KEY", &config.api_key)
+        .env("STEWARD_DATABASE_URL", format!("sqlite://{}/steward.db?mode=rwc", data_dir.display()))
+        .stdout(std::process::Stdio::from(std::fs::File::create(&config.steward_log)?))
+        .stderr(std::process::Stdio::from(std::fs::File::create(&config.steward_log)?))
+        .spawn()?;
+
+    let pid = child.id();
+    std::fs::write(&config.steward_pid_file, pid.to_string())?;
+
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            spinner.finish_with_message("Failed to start".red().to_string());
+            print_error(&format!("Steward exited: {}", status));
+            print_error(&format!("Check logs at: {}", config.steward_log.display()));
+            return Err(anyhow::anyhow!("Steward failed to start"));
+        }
+        Ok(None) => {
+            spinner.finish_with_message("Steward running!".green().to_string());
+        }
+        Err(_) => {
+            spinner.finish_with_message("Started (status unknown)".yellow().to_string());
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if a port is available
+fn is_port_available(port: u16) -> bool {
+    std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
 /// Generate a wallet address (placeholder for DKG result)
