@@ -1167,7 +1167,7 @@ Replace the entire file with:
 ```bash
 #!/bin/bash
 # Kamuy Wallet Installer
-# Usage: curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/main/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh | bash
 
 set -e
 
@@ -1366,7 +1366,7 @@ After all tasks complete:
 rm -rf ~/.kamuy
 
 # Install
-curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh | bash
 
 # One-command setup
 kamuy init --email user@example.com
