@@ -828,7 +828,7 @@ impl StewardStorage {
 }
 
 /// Wallet info
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletInfo {
     pub address: String,
     pub chain_id: u64,

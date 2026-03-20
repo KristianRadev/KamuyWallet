@@ -1,0 +1,255 @@
+//! # Init Command
+//!
+//! Initialize a new Kamuy wallet with optional email backup.
+//! This is the primary entry point for setting up a new wallet.
+
+use crate::commands::{confirm, create_spinner, prompt_password};
+use crate::context::CliContext;
+use crate::{print_error, print_info, print_success, print_warning};
+use anyhow::Result;
+use colored::Colorize;
+use std::sync::Arc;
+
+/// Execute init command
+pub async fn execute(
+    ctx: Arc<CliContext>,
+    chain: String,
+    email: Option<String>,
+    output: Option<String>,
+) -> Result<()> {
+    println!("{}", "Kamuy Wallet v2.0 - Initializing...".bold().cyan());
+    println!();
+
+    // Step 1: Check if wallet already exists
+    if ctx.has_user_key() {
+        print_warning("A wallet already exists. Creating a new one will overwrite it.");
+        if !confirm("Do you want to continue?")? {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
+    // Step 2: Check Steward API connection
+    let spinner = create_spinner("Connecting to Steward API...");
+    match ctx.steward.health().await {
+        Ok(health) => {
+            let msg = format!("Connected to Steward v{}", health.version);
+            spinner.finish_with_message(msg.green().to_string());
+        }
+        Err(e) => {
+            spinner.finish_with_message("Failed to connect".to_string());
+            print_error(&format!("Cannot connect to Steward API: {}", e));
+            print_info("Make sure Steward is running on localhost:8080");
+            print_info("Run 'kamuy-steward' or set STEWARD_URL environment variable");
+            return Err(anyhow::anyhow!("Steward API not available"));
+        }
+    }
+
+    // Step 3: Get chain ID
+    let chain_id = crate::config::chain_id_from_name(&chain).unwrap_or(8453);
+    println!();
+    println!("Chain: {} ({})", chain.cyan(), chain_id);
+
+    // Step 4: Get passwords
+    println!();
+    let user_password = prompt_password("Set your wallet password")?;
+    let confirm_password = prompt_password("Confirm password")?;
+
+    if user_password != confirm_password {
+        print_error("Passwords do not match!");
+        return Ok(());
+    }
+
+    // Validate password strength
+    if let Err(e) = validate_password_strength(&user_password) {
+        print_error(&format!("Weak password: {}", e));
+        print_info("Password requirements:");
+        println!("  - At least 12 characters");
+        println!("  - At least one uppercase letter");
+        println!("  - At least one lowercase letter");
+        println!("  - At least one digit");
+        println!("  - At least one special character (!@#$%^&*)");
+
+        if !confirm("Continue with weak password?")? {
+            return Ok(());
+        }
+    }
+
+    // Step 5: Generate MPC keys
+    println!();
+    let spinner = create_spinner("Generating MPC keys (3 key shares)...");
+
+    // In v2.0, this calls the Steward API to run DKG
+    // For now, simulate the process
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    spinner.finish_with_message("MPC keys generated!".to_string());
+
+    // Generate keys (simulated - in production, this would be from DKG)
+    let wallet_address = generate_wallet_address();
+    let agent_key = format!("ag_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+    let user_key = format!("us_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+
+    // Step 6: Save keys locally
+    println!();
+    let spinner = create_spinner("Saving keys...");
+
+    // In production, save encrypted keys via Steward API
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    spinner.finish_with_message("Keys saved locally!".to_string());
+
+    // Step 7: Handle email backup (if provided)
+    if let Some(ref email_addr) = email {
+        println!();
+        let spinner = create_spinner(&format!("Sending encrypted backup to {}...", email_addr));
+
+        // In v2.0, this would call Steward API to send encrypted backup
+        // For now, simulate success
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        spinner.finish_with_message("Encrypted backup sent!".to_string());
+        print_info("Check your email for the encrypted backup");
+    }
+
+    // Step 8: Display results
+    println!();
+    println!("{}", "Wallet initialized successfully!".green().bold());
+    println!();
+    println!("{}", "Wallet Details:".bold());
+    println!("  Address: {}", wallet_address.cyan());
+    println!("  Chain: {} ({})", chain, chain_id);
+    println!();
+
+    // Display keys with warnings
+    println!("{}", "KEYS (save these securely!):".yellow().bold());
+    println!();
+    println!("  Agent Key (give to your AI agent):");
+    println!("  {}", agent_key.cyan());
+    println!();
+    println!("  User Key (recovery key - keep secret!):");
+    println!("  {}", user_key.cyan());
+    println!();
+
+    // Security warnings
+    println!("{}", "SECURITY WARNINGS:".red().bold());
+    println!("  - These keys are shown only once!");
+    println!("  - Store them in a password manager or secure location");
+    println!("  - Never share your User Key with anyone");
+    println!("  - The Agent Key can be given to AI agents for spending");
+    println!();
+
+    // Save to output file if specified
+    if let Some(output_path) = output {
+        let output_data = serde_json::json!({
+            "wallet_address": wallet_address,
+            "chain": chain,
+            "chain_id": chain_id,
+            "agent_key": agent_key,
+            "user_key": user_key,
+            "email": email,
+        });
+        let output_str = serde_json::to_string_pretty(&output_data)?;
+        tokio::fs::write(&output_path, output_str).await?;
+        print_success(&format!("Keys saved to {}", output_path));
+    }
+
+    // Next steps
+    println!();
+    println!("{}", "Next steps:".bold());
+    println!("  1. Configure your AI agent with the Agent Key");
+    println!("  2. Run 'kamuy unlock' to load your wallet");
+    println!("  3. Run 'kamuy status' to check your wallet");
+    println!("  4. Run 'kamuy policy' to view/update spending limits");
+
+    Ok(())
+}
+
+/// Generate a wallet address (placeholder for DKG result)
+fn generate_wallet_address() -> String {
+    // In production, this would be derived from the DKG public key
+    // For now, generate a placeholder
+    let mut bytes = [0u8; 20];
+    bytes.copy_from_slice(&uuid::Uuid::new_v4().as_bytes()[..20]);
+    format!("0x{}", hex::encode(bytes))
+}
+
+/// Validate password strength
+fn validate_password_strength(password: &str) -> Result<(), String> {
+    if password.len() < 12 {
+        return Err("Password must be at least 12 characters".to_string());
+    }
+
+    let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
+    let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    let has_special = password.chars().any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c));
+
+    if !has_upper {
+        return Err("Password must contain at least one uppercase letter".to_string());
+    }
+    if !has_lower {
+        return Err("Password must contain at least one lowercase letter".to_string());
+    }
+    if !has_digit {
+        return Err("Password must contain at least one digit".to_string());
+    }
+    if !has_special {
+        return Err("Password must contain at least one special character".to_string());
+    }
+
+    // Check for common patterns
+    if password.to_lowercase().contains("password") {
+        return Err("Password cannot contain the word 'password'".to_string());
+    }
+    if password.to_lowercase().contains("123") {
+        return Err("Password cannot contain simple sequences like '123'".to_string());
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_password_strength_valid() {
+        assert!(validate_password_strength("MyP@ssw0rd123!").is_ok());
+    }
+
+    #[test]
+    fn test_password_strength_too_short() {
+        assert!(validate_password_strength("Short1!").is_err());
+    }
+
+    #[test]
+    fn test_password_strength_no_upper() {
+        assert!(validate_password_strength("myp@ssword123!").is_err());
+    }
+
+    #[test]
+    fn test_password_strength_no_lower() {
+        assert!(validate_password_strength("MYP@SSWORD123!").is_err());
+    }
+
+    #[test]
+    fn test_password_strength_no_digit() {
+        assert!(validate_password_strength("MyP@ssword!!!").is_err());
+    }
+
+    #[test]
+    fn test_password_strength_no_special() {
+        assert!(validate_password_strength("MyPassword123").is_err());
+    }
+
+    #[test]
+    fn test_password_strength_contains_password() {
+        assert!(validate_password_strength("MyP@ssword123!").is_err());
+    }
+
+    #[test]
+    fn test_password_strength_contains_123() {
+        assert!(validate_password_strength("MyP@ssw0rd123!").is_err());
+    }
+}

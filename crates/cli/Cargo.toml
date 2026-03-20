@@ -1,0 +1,96 @@
+[package]
+name = "kamuy-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+authors = ["Kris <kris@kamuy.io>"]
+license = "MIT OR Apache-2.0"
+description = "CLI for Kamuy Wallet - MPC wallet management and operations"
+keywords = ["mpc", "wallet", "cli", "crypto", "ethereum"]
+categories = ["command-line-utilities", "cryptography"]
+
+[[bin]]
+name = "kamuy"
+path = "src/main.rs"
+
+[dependencies]
+# Core MPC library
+kamuy-mpc-core = { path = "../mpc-core" }
+
+# Steward client
+kamuy-steward = { path = "../steward" }
+
+# CLI framework
+clap = { version = "4.5", features = ["derive", "env", "cargo"] }
+clap_complete = "4.5"
+
+# Async runtime
+tokio = { version = "1.49", features = ["full"] }
+async-trait = "0.1"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Configuration
+config = "0.14"
+dotenv = "0.15"
+
+# Cryptography
+sha3 = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+# Ethereum
+ethers = { version = "2.0", features = ["rustls"] }
+
+# Password input
+rpassword = "7.3"
+
+# Terminal UI
+dialoguer = "0.11"
+console = "0.15"
+indicatif = "0.17"
+
+# Colors
+colored = "2.1"
+
+# Tables
+comfy-table = "7.1"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.11", features = ["v4"] }
+
+# HTTP types
+http = "1.0"
+
+# URL parsing
+url = "2.5"
+
+# Directory paths
+dirs = "5.0"
+
+# TOML parsing (for config)
+toml = "0.8"
+
+[dev-dependencies]
+tokio-test = "0.4"
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.10"

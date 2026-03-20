@@ -115,12 +115,12 @@ pub async fn approve_tx(ctx: Arc<CliContext>, id: String, with_password: bool) -
     let tx = match ctx.steward.get_transaction(&id).await? {
         Some(tx) => tx,
         None => {
-            spinner.finish_with_message("Not found");
+            spinner.finish_with_message("Not found".to_string());
             print_error(&format!("Transaction {} not found", id));
             return Ok(());
         }
     };
-    spinner.finish_with_message("Transaction loaded");
+    spinner.finish_with_message("Transaction loaded".to_string());
 
     println!();
     println!("{}", "Transaction Details:".bold());
@@ -157,11 +157,11 @@ pub async fn approve_tx(ctx: Arc<CliContext>, id: String, with_password: bool) -
 
         match ctx.steward.approve_transaction_with_password(&id, &password).await {
             Ok(()) => {
-                spinner.finish_with_message("Approved!");
+                spinner.finish_with_message("Approved!".to_string());
                 print_success(&format!("Transaction {} approved with password verification", id));
             }
             Err(e) => {
-                spinner.finish_with_message("Failed");
+                spinner.finish_with_message("Failed".to_string());
                 print_error(&format!("Approval failed: {}", e));
             }
         }
@@ -171,11 +171,11 @@ pub async fn approve_tx(ctx: Arc<CliContext>, id: String, with_password: bool) -
 
         match ctx.steward.approve_transaction(&id).await {
             Ok(()) => {
-                spinner.finish_with_message("Approved!");
+                spinner.finish_with_message("Approved!".to_string());
                 print_success(&format!("Transaction {} approved", id));
             }
             Err(e) => {
-                spinner.finish_with_message("Failed");
+                spinner.finish_with_message("Failed".to_string());
                 print_error(&format!("Approval failed: {}", e));
             }
         }
@@ -195,12 +195,12 @@ pub async fn execute(ctx: Arc<CliContext>, tx_id: String, approve: bool) -> Resu
     let tx = match ctx.steward.get_transaction(&tx_id).await? {
         Some(tx) => tx,
         None => {
-            spinner.finish_with_message("Not found");
+            spinner.finish_with_message("Not found".to_string());
             print_error(&format!("Transaction {} not found", tx_id));
             return Ok(());
         }
     };
-    spinner.finish_with_message("Transaction loaded");
+    spinner.finish_with_message("Transaction loaded".to_string());
 
     println!();
     println!("{}", "Transaction Details:".bold());
@@ -229,11 +229,11 @@ pub async fn execute(ctx: Arc<CliContext>, tx_id: String, approve: bool) -> Resu
 
     if approve {
         ctx.steward.approve_transaction(&tx_id).await?;
-        spinner.finish_with_message("Approved!");
+        spinner.finish_with_message("Approved!".to_string());
         print_success(&format!("Transaction {} approved", tx_id));
     } else {
         ctx.steward.reject_transaction(&tx_id).await?;
-        spinner.finish_with_message("Rejected!");
+        spinner.finish_with_message("Rejected!".to_string());
         print_success(&format!("Transaction {} rejected", tx_id));
     }
 
