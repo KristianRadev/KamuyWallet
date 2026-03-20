@@ -145,6 +145,16 @@ enum Commands {
     /// Lock the wallet (unload Steward key)
     Lock,
 
+    /// Start the steward daemon
+    Start {
+        /// Port to listen on
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+    },
+
+    /// Stop the steward daemon
+    Stop,
+
     /// Rotate the agent key
     Rotate {
         /// Force rotation without confirmation
@@ -226,6 +236,12 @@ enum ConfigAction {
         key: String,
         /// Configuration value
         value: String,
+    },
+
+    /// Get a configuration value
+    Get {
+        /// Configuration key (api_key, steward_url, wallet_path)
+        key: String,
     },
 
     /// Initialize configuration file
@@ -349,6 +365,17 @@ async fn main() -> Result<()> {
             lock::execute(ctx).await?;
             progress_tracker.command_completed("lock")?;
         }
+        Commands::Start { port } => {
+            progress_tracker.set_current_command("start")?;
+            // SimpleConfig::load() already respects KAMUY_CONFIG env var
+            start::execute(Some(port)).await?;
+            progress_tracker.command_completed("start")?;
+        }
+        Commands::Stop => {
+            progress_tracker.set_current_command("stop")?;
+            stop::execute().await?;
+            progress_tracker.command_completed("stop")?;
+        }
         Commands::Rotate { force } => {
             progress_tracker.set_current_command("rotate")?;
             rotate::execute(ctx, force).await?;
@@ -397,6 +424,9 @@ async fn main() -> Result<()> {
                 }
                 ConfigAction::Set { key, value } => {
                     config_cmd::set(ctx, key, value).await?;
+                }
+                ConfigAction::Get { key } => {
+                    config_cmd::get(ctx, key).await?;
                 }
                 ConfigAction::Init => {
                     config_cmd::init(ctx).await?;
