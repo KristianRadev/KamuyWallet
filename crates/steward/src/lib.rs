@@ -167,8 +167,8 @@ pub use config::StewardConfig;
 pub use error::{StewardError, Result};
 pub use types::{
     ApiResponse, HealthResponse, PaginatedResponse, Pagination,
-    PolicyDecision, PolicyResult, TransactionId, TransactionRecord,
-    TransactionRequest, TransactionStatus, WalletInfo,
+    PolicyChangeRecord, PolicyChangeStatus, PolicyDecision, PolicyResult,
+    TransactionId, TransactionRecord, TransactionRequest, TransactionStatus, WalletInfo,
 };
 
 // Re-export policy types

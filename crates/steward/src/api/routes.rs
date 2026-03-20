@@ -789,6 +789,145 @@ pub async fn check_signing_keys(
     success(serde_json::json!({"keys_loaded": keys_loaded, "completed_signatures": stats.completed_signatures}), request_id).into_response()
 }
 
+/// Request body for policy change approval with password
+#[derive(serde::Deserialize)]
+pub struct ApprovePolicyChangeRequest {
+    /// User password for verification
+    pub password: String,
+    /// Whether to approve (true) or reject (false)
+    #[serde(default = "default_approve")]
+    pub approve: bool,
+}
+
+fn default_approve() -> bool {
+    true
+}
+
+/// Approve or reject a policy change request with password
+pub async fn approve_policy_change_request(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<ApprovePolicyChangeRequest>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Parse policy change ID
+    let policy_id = match uuid::Uuid::parse_str(&id) {
+        Ok(u) => PolicyChangeRequestId::from(u),
+        Err(_) => return error(StatusCode::BAD_REQUEST, "Invalid policy change ID", request_id).into_response(),
+    };
+
+    // Get the policy change request
+    let mut record = match state.storage.get_policy_change_request(policy_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return error(StatusCode::NOT_FOUND, "Policy change request not found", request_id).into_response(),
+        Err(e) => return error_response(e, request_id).into_response(),
+    };
+
+    // Check if already resolved
+    if record.status != crate::types::PolicyChangeStatus::Pending {
+        return error(StatusCode::BAD_REQUEST, "Policy change request already processed", request_id).into_response();
+    }
+
+    // Verify password
+    if !state.storage.verify_user_password(&body.password).await.unwrap_or(false) {
+        return error(StatusCode::UNAUTHORIZED, "Invalid password", request_id).into_response();
+    }
+
+    if body.approve {
+        // Apply the policy change
+        let field = record.request.field.clone();
+        let new_value = record.request.new_value.clone();
+
+        // Update the policy
+        if let Err(e) = state.policy_engine.write().await.update_rule(&field, &new_value).await {
+            return error_response(e, request_id).into_response();
+        }
+        if let Err(e) = state.policy_engine.read().await.save().await {
+            return error_response(e, request_id).into_response();
+        }
+
+        // Mark as approved
+        record.approve("cli".to_string());
+        if let Err(e) = state.storage.update_policy_change_request(&record).await {
+            return error_response(e, request_id).into_response();
+        }
+
+        info!(
+            policy_change_id = %policy_id,
+            field = %record.request.field,
+            new_value = %record.request.new_value,
+            "Policy change approved via CLI"
+        );
+
+        success(serde_json::json!({
+            "approved": true,
+            "field": record.request.field,
+            "new_value": record.request.new_value
+        }), request_id).into_response()
+    } else {
+        // Mark as rejected
+        record.reject("cli".to_string());
+        if let Err(e) = state.storage.update_policy_change_request(&record).await {
+            return error_response(e, request_id).into_response();
+        }
+
+        info!(
+            policy_change_id = %policy_id,
+            "Policy change rejected via CLI"
+        );
+
+        success(serde_json::json!({"rejected": true}), request_id).into_response()
+    }
+}
+
+/// Request body for transaction approval with password
+#[derive(serde::Deserialize)]
+pub struct ApproveTransactionWithPasswordRequest {
+    /// User password for verification
+    pub password: String,
+    /// Whether to approve (true) or reject (false)
+    #[serde(default = "default_approve")]
+    pub approve: bool,
+}
+
+/// Approve or reject a transaction with password (for TerminalPassword approval level)
+pub async fn approve_transaction_with_password(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    Json(body): Json<ApproveTransactionWithPasswordRequest>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Parse transaction ID
+    let tx_id = match parse_transaction_id(&id) {
+        Ok(id) => id,
+        Err(e) => return error(StatusCode::BAD_REQUEST, e, request_id).into_response(),
+    };
+
+    // Verify password
+    if !state.storage.verify_user_password(&body.password).await.unwrap_or(false) {
+        return error(StatusCode::UNAUTHORIZED, "Invalid password", request_id).into_response();
+    }
+
+    // Process approval/rejection
+    match crate::queue::processor::handle_user_approval(
+        &state,
+        tx_id,
+        body.approve,
+        "cli".to_string(),
+    ).await {
+        Ok(()) => {
+            if body.approve {
+                success(serde_json::json!({"approved": true}), request_id).into_response()
+            } else {
+                success(serde_json::json!({"rejected": true}), request_id).into_response()
+            }
+        }
+        Err(e) => error_response(e, request_id).into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
