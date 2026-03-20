@@ -298,19 +298,32 @@ async fn main() -> Result<()> {
 
     // AUTO-RECOVERY: Check for saved progress
     let mut progress_tracker = ProgressTracker::load_or_create()?;
-    
+
     if progress_tracker.should_resume() {
         println!("{}", progress_tracker.resume_message().yellow());
         println!();
     }
 
-    // Load configuration
-    let config = CliConfig::load(cli.config.as_deref())?;
-    
-    // Override with CLI arguments
-    let config = config
-        .with_steward_url(cli.steward_url)
-        .with_api_key(cli.api_key);
+    // Load configuration - prefer SimpleConfig (v2.0) over CliConfig (v1.0)
+    let (steward_url, api_key) = if let Some(simple_config) = config::SimpleConfig::load()? {
+        // v2.0 config exists - use auto-generated values
+        (
+            cli.steward_url.unwrap_or(simple_config.steward_url),
+            cli.api_key.or(Some(simple_config.api_key)),
+        )
+    } else {
+        // Fall back to v1.0 config
+        let config = CliConfig::load(cli.config.as_deref())?;
+        (
+            cli.steward_url.unwrap_or(config.steward_url),
+            cli.api_key.or(config.api_key),
+        )
+    };
+
+    // Create config for context
+    let config = CliConfig::default()
+        .with_steward_url(Some(steward_url))
+        .with_api_key(api_key);
 
     // Create CLI context
     let ctx = Arc::new(CliContext::new(config).await?);

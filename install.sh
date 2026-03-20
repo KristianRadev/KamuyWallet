@@ -59,11 +59,11 @@ download_file() {
 RELEASE_URL="https://github.com/$REPO/releases/download/v0.2.0"
 
 echo "📥 Downloading kamuy CLI..."
-download_file "$RELEASE_URL/kamuy-$OS-$ARCH" "$INSTALL_DIR/kamuy"
+download_file "$RELEASE_URL/kamuy" "$INSTALL_DIR/kamuy"
 chmod +x "$INSTALL_DIR/kamuy"
 
 echo "📥 Downloading kamuy-steward..."
-download_file "$RELEASE_URL/kamuy-steward-$OS-$ARCH" "$INSTALL_DIR/kamuy-steward"
+download_file "$RELEASE_URL/kamuy-steward" "$INSTALL_DIR/kamuy-steward"
 chmod +x "$INSTALL_DIR/kamuy-steward"
 
 # Create symlinks in bin
