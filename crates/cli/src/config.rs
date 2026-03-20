@@ -160,6 +160,183 @@ impl CliConfig {
     }
 }
 
+// ============================================================================
+// SimpleConfig - v2.0 Zero-Friction Configuration
+// ============================================================================
+
+/// Simplified v2.0 config stored at ~/.kamuy/config.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleConfig {
+    /// Config version
+    pub version: String,
+    /// Steward service URL
+    pub steward_url: String,
+    /// Auto-generated API key
+    pub api_key: String,
+    /// Path to wallet file
+    pub wallet_path: PathBuf,
+    /// Path to steward log
+    pub steward_log: PathBuf,
+    /// Path to steward PID file
+    pub steward_pid_file: PathBuf,
+}
+
+impl SimpleConfig {
+    /// Default config path: ~/.kamuy/config.json
+    pub fn config_path() -> Result<PathBuf> {
+        let home = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+        Ok(home.join(".kamuy").join("config.json"))
+    }
+
+    /// Wallet path: ~/.kamuy/wallet.json
+    pub fn wallet_path() -> Result<PathBuf> {
+        let home = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+        Ok(home.join(".kamuy").join("wallet.json"))
+    }
+
+    /// Data directory: ~/.kamuy/
+    pub fn data_dir() -> Result<PathBuf> {
+        let home = dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
+        Ok(home.join(".kamuy"))
+    }
+
+    /// Load config with priority: KAMUY_CONFIG env -> ~/.kamuy/config.json
+    /// Also applies env var overrides for api_key and steward_url
+    pub fn load() -> Result<Option<Self>> {
+        // Check for explicit config path
+        let path = if let Ok(custom_path) = std::env::var("KAMUY_CONFIG") {
+            PathBuf::from(custom_path)
+        } else {
+            Self::config_path()?
+        };
+
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        Self::load_from_path(&path)
+    }
+
+    /// Load config from a specific path (for --config flag support)
+    pub fn load_from_path(path: &Path) -> Result<Option<Self>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read config: {:?}", path))?;
+
+        let mut config: SimpleConfig = serde_json::from_str(&content)
+            .with_context(|| "Failed to parse config.json")?;
+
+        // Apply env var overrides
+        if let Ok(api_key) = std::env::var("KAMUY_API_KEY") {
+            config.api_key = api_key;
+        }
+        if let Ok(steward_url) = std::env::var("KAMUY_STEWARD_URL") {
+            config.steward_url = steward_url;
+        }
+
+        Ok(Some(config))
+    }
+
+    /// Save config to ~/.kamuy/config.json
+    pub fn save(&self) -> Result<()> {
+        let path = Self::config_path()?;
+        let dir = path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid config path"))?;
+
+        std::fs::create_dir_all(dir)
+            .with_context(|| "Failed to create ~/.kamuy directory")?;
+
+        let content = serde_json::to_string_pretty(self)
+            .with_context(|| "Failed to serialize config")?;
+
+        std::fs::write(&path, content)
+            .with_context(|| format!("Failed to write config: {:?}", path))?;
+
+        // Set restrictive permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&path)?.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(&path, perms)?;
+        }
+
+        Ok(())
+    }
+
+    /// Generate new config with random API key
+    pub fn generate() -> Result<Self> {
+        let api_key = Self::generate_api_key();
+        let data_dir = Self::data_dir()?;
+
+        Ok(Self {
+            version: "2.0".to_string(),
+            steward_url: "http://127.0.0.1:8080".to_string(),
+            api_key,
+            wallet_path: data_dir.join("wallet.json"),
+            steward_log: data_dir.join("steward.log"),
+            steward_pid_file: data_dir.join("steward.pid"),
+        })
+    }
+
+    /// Generate random 32-byte API key (hex encoded)
+    fn generate_api_key() -> String {
+        use rand::RngCore;
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut bytes);
+        hex::encode(bytes)
+    }
+
+    /// Check if wallet exists
+    pub fn wallet_exists() -> Result<bool> {
+        let path = Self::wallet_path()?;
+        Ok(path.exists())
+    }
+
+    /// Migrate from old ~/.config/kamuy/ config if it exists
+    pub fn migrate_from_old_config() -> Result<()> {
+        let old_config_dir = dirs::config_dir()
+            .map(|d| d.join("kamuy"))
+            .unwrap_or_else(|| PathBuf::from(".kamuy"));
+
+        let old_config_path = old_config_dir.join("config.toml");
+        if !old_config_path.exists() {
+            return Ok(());
+        }
+
+        // Old config exists, read it
+        let content = std::fs::read_to_string(&old_config_path)?;
+        let old_config: toml::Value = toml::from_str(&content)?;
+
+        // Extract values and create new config
+        let new_config = Self {
+            version: "2.0".to_string(),
+            steward_url: old_config.get("steward_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("http://127.0.0.1:8080")
+                .to_string(),
+            api_key: old_config.get("api_key")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| Self::generate_api_key()),
+            wallet_path: Self::wallet_path()?,
+            steward_log: Self::data_dir()?.join("steward.log"),
+            steward_pid_file: Self::data_dir()?.join("steward.pid"),
+        };
+
+        new_config.save()?;
+        println!("Migrated config from {} to ~/.kamuy/config.json", old_config_dir.display());
+
+        Ok(())
+    }
+}
+
 /// Get chain ID from chain name
 pub fn chain_id_from_name(name: &str) -> Option<u64> {
     match name.to_lowercase().as_str() {
@@ -205,7 +382,7 @@ mod tests {
     fn test_config_save_load() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.toml");
-        
+
         let config = CliConfig {
             steward_url: "http://test:8080".to_string(),
             api_key: Some("test-key".to_string()),
@@ -219,14 +396,30 @@ mod tests {
             default_gas_limit: 100000,
             auto_submit: false,
         };
-        
+
         // Save
         let content = toml::to_string_pretty(&config).unwrap();
         std::fs::write(&config_path, content).unwrap();
-        
+
         // Load
         let loaded = CliConfig::load(Some(config_path.to_str().unwrap())).unwrap();
         assert_eq!(loaded.steward_url, "http://test:8080");
         assert_eq!(loaded.api_key, Some("test-key".to_string()));
+    }
+
+    #[test]
+    fn test_simple_config_generate() {
+        let config = super::SimpleConfig::generate().unwrap();
+        assert_eq!(config.version, "2.0");
+        // API key is 32 bytes hex-encoded = 64 chars (no 0x prefix)
+        assert_eq!(config.api_key.len(), 64);
+        assert_eq!(config.steward_url, "http://127.0.0.1:8080");
+    }
+
+    #[test]
+    fn test_simple_config_wallet_exists() {
+        // Should return false when no wallet exists
+        let result = super::SimpleConfig::wallet_exists();
+        assert!(result.is_ok());
     }
 }
