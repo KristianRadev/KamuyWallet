@@ -184,15 +184,48 @@ kamuy-wallet/
 
 ## Distribution
 
-Pre-built binaries will be provided for easy installation. Until then, building from source requires Rust.
+Pre-built binaries are available from the [releases page](https://github.com/KristianRadev/KamuyWallet/releases).
 
 ## Quick Start
 
-### Installation (From Source)
+### Option 1: Binary Installation (Recommended)
 
 ```bash
-git clone https://github.com/kris/kamuy-wallet
-cd kamuy-wallet
+# 1. Download the install script
+curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh -o install.sh
+
+# 2. Review it (optional but recommended)
+cat install.sh
+
+# 3. Run the installer
+bash install.sh
+
+# 4. Add to PATH if needed
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Option 2: Direct Binary Download
+
+```bash
+# Create directories
+mkdir -p ~/.kamuy ~/.local/bin
+
+# Download binaries from latest release
+curl -sSL https://github.com/KristianRadev/KamuyWallet/releases/download/v0.2.0/kamuy -o ~/.local/bin/kamuy
+curl -sSL https://github.com/KristianRadev/KamuyWallet/releases/download/v0.2.0/kamuy-steward -o ~/.local/bin/kamuy-steward
+
+# Make executable
+chmod +x ~/.local/bin/kamuy ~/.local/bin/kamuy-steward
+
+# Add to PATH
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Option 3: Build from Source
+
+```bash
+git clone https://github.com/KristianRadev/KamuyWallet.git
+cd KamuyWallet
 cargo build --release
 ```
 

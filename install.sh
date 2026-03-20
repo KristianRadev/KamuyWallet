@@ -1,8 +1,10 @@
 #!/bin/bash
 # Kamuy Wallet Installer
+#
 # Usage:
-#   Public repo: curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh | bash
-#   Private repo: curl -sSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh | GITHUB_TOKEN=$GITHUB_TOKEN bash
+#   1. Download: curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh -o install.sh
+#   2. Review:   cat install.sh
+#   3. Run:      bash install.sh
 
 set -e
 

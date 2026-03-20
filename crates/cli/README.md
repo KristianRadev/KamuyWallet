@@ -39,16 +39,40 @@ The Kamuy CLI is the **user-facing** interface for managing wallets and policies
 
 ## Installation
 
-### Pre-built Binary (Recommended)
+### Option 1: Using Install Script (Recommended)
 
 ```bash
-# Download latest release
-curl -L https://github.com/kris/kamuy-wallet/releases/latest/download/kamuy-linux-amd64 -o kamuy
-chmod +x kamuy
-sudo mv kamuy /usr/local/bin/
+# 1. Download the install script
+curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/master/install.sh -o install.sh
+
+# 2. Review it (optional but recommended)
+cat install.sh
+
+# 3. Run the installer
+bash install.sh
+
+# 4. Add to PATH if needed
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Build from Source
+### Option 2: Direct Binary Download
+
+```bash
+# Create directories
+mkdir -p ~/.local/bin
+
+# Download binary from latest release
+curl -sSL https://github.com/KristianRadev/KamuyWallet/releases/download/v0.2.0/kamuy -o ~/.local/bin/kamuy
+curl -sSL https://github.com/KristianRadev/KamuyWallet/releases/download/v0.2.0/kamuy-steward -o ~/.local/bin/kamuy-steward
+
+# Make executable
+chmod +x ~/.local/bin/kamuy ~/.local/bin/kamuy-steward
+
+# Add to PATH
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Option 3: Build from Source
 
 ```bash
 # Requires Rust
