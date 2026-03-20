@@ -1,6 +1,8 @@
 #!/bin/bash
 # Kamuy Wallet Installer
-# Usage: curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/main/install.sh | bash
+# Usage:
+#   Public repo: curl -sSL https://raw.githubusercontent.com/KristianRadev/KamuyWallet/main/install.sh | bash
+#   Private repo: curl -sSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/KristianRadev/KamuyWallet/main/install.sh | GITHUB_TOKEN=$GITHUB_TOKEN bash
 
 set -e
 
@@ -9,6 +11,17 @@ INSTALL_DIR="$HOME/.kamuy"
 BIN_DIR="$HOME/.local/bin"
 
 echo "🔐 Installing Kamuy Wallet..."
+
+# Check for GitHub token (required for private repos)
+if [ -n "$GITHUB_TOKEN" ]; then
+    AUTH_HEADER="-H \"Authorization: token $GITHUB_TOKEN\""
+    CURL_AUTH="-H \"Authorization: token $GITHUB_TOKEN\""
+    echo "   Using authenticated access (private repo)"
+else
+    AUTH_HEADER=""
+    CURL_AUTH=""
+    echo "   Using public access"
+fi
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -30,15 +43,27 @@ esac
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
-# Download binaries from latest release
-LATEST_RELEASE="https://github.com/$REPO/releases/latest/download"
+# Build download URL with auth if needed
+download_file() {
+    local url="$1"
+    local output="$2"
+
+    if [ -n "$GITHUB_TOKEN" ]; then
+        curl -sSL -H "Authorization: token $GITHUB_TOKEN" "$url" -o "$output"
+    else
+        curl -sSL "$url" -o "$output"
+    fi
+}
+
+# Download binaries from release
+RELEASE_URL="https://github.com/$REPO/releases/download/v0.1.0"
 
 echo "📥 Downloading kamuy CLI..."
-curl -sSL "$LATEST_RELEASE/kamuy-$OS-$ARCH" -o "$INSTALL_DIR/kamuy"
+download_file "$RELEASE_URL/kamuy-$OS-$ARCH" "$INSTALL_DIR/kamuy"
 chmod +x "$INSTALL_DIR/kamuy"
 
 echo "📥 Downloading kamuy-steward..."
-curl -sSL "$LATEST_RELEASE/kamuy-steward-$OS-$ARCH" -o "$INSTALL_DIR/kamuy-steward"
+download_file "$RELEASE_URL/kamuy-steward-$OS-$ARCH" "$INSTALL_DIR/kamuy-steward"
 chmod +x "$INSTALL_DIR/kamuy-steward"
 
 # Create symlinks in bin
@@ -55,7 +80,11 @@ if ! echo "$PATH" | grep -q "$BIN_DIR"; then
 fi
 
 # Download default config
-curl -sSL "https://raw.githubusercontent.com/$REPO/main/pimlico.json" -o "$INSTALL_DIR/pimlico.json" 2>/dev/null || true
+if [ -n "$GITHUB_TOKEN" ]; then
+    curl -sSL -H "Authorization: token $GITHUB_TOKEN" "https://raw.githubusercontent.com/$REPO/main/pimlico.json" -o "$INSTALL_DIR/pimlico.json" 2>/dev/null || true
+else
+    curl -sSL "https://raw.githubusercontent.com/$REPO/main/pimlico.json" -o "$INSTALL_DIR/pimlico.json" 2>/dev/null || true
+fi
 
 echo ""
 echo "✅ Kamuy Wallet installed to $INSTALL_DIR"
