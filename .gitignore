@@ -1,8 +1,9 @@
 # Rust
 target/
-Cargo.lock
 **/*.rs.bk
 *.pdb
+
+# Note: We commit Cargo.lock for binary reproducibility
 
 # WASM
 pkg/
@@ -60,3 +61,24 @@ secrets/
 tmp/
 temp/
 .tmp/
+
+# Development artifacts
+*_SUMMARY.md
+*_FIXES.md
+*_REPORT.md
+CHANGES_SUMMARY.md
+IMPLEMENTATION_PLAN.md
+TESTING.md
+TESTNET_IMPLEMENTATION.md
+PRD.md
+
+# Python test scripts
+*.py
+__pycache__/
+
+# Shell scripts (development)
+run_testnet.sh
+setup_test_wallet.sh
+
+# Audits (internal)
+audits/

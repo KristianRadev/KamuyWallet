@@ -1,0 +1,8 @@
+{
+  "apiKey": "pim_k5uf3h6xMdfJ91rMVz9WTj",
+  "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+  "factory": "0x8D9dd4062D0D68d4d8Dc439aE9762DEde9bcb821",
+  "chainId": 84532,
+  "rpcUrl": "https://sepolia.base.org",
+  "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+}

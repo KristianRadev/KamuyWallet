@@ -388,6 +388,24 @@ Password: ********
 | `token` | Only USDC can be spent | Steward (hardcoded, rejects others) |
 | `whitelist` | Only whitelisted addresses receive funds | Steward (rejects non-whitelisted) |
 
+### Edge Case: Multiple Policy Violations
+
+When a transaction triggers multiple policy violations (e.g., both "new address over threshold" AND "per-transaction limit exceeded"), the **higher-security requirement wins**:
+
+```
+Transaction: $200 to new address
+    ├── Amount ($200) > max_per_tx ($100) → Requires approval
+    └── Address not whitelisted + $200 > auto_add_threshold ($50) → Requires password
+
+Resolution: Require terminal password confirmation
+Rationale: Higher security takes precedence
+```
+
+**Priority order (highest to lowest security):**
+1. Terminal password required
+2. Telegram button approval
+3. Auto-approved (within all limits)
+
 ### Policy Change Flow
 
 ```

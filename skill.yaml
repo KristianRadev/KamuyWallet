@@ -1,0 +1,67 @@
+# Kamuy Wallet - OpenClaw Skill
+# Install: openclaw skill install https://github.com/KristianRadev/KamuyWallet
+
+name: kamuy-wallet
+version: 2.0.0
+description: Gasless USDC wallet for AI agents with MPC 2-of-3 threshold security
+
+# Installation
+install:
+  script: install.sh
+  binaries:
+    - kamuy
+    - kamuy-steward
+
+# Commands the skill handles
+commands:
+  - pattern: "^(pay|send|spend|transfer)\\s+"
+    description: "Send USDC to an address"
+    example: "pay $50 to 0x1234... for API credits"
+
+  - pattern: "^(wallet|balance|funds)"
+    description: "Check wallet balance and status"
+    example: "wallet balance"
+
+  - pattern: "^(policy|limits|spending)"
+    description: "View or modify wallet policy"
+    example: "show my spending limits"
+
+  - pattern: "^(whitelist|trusted)"
+    description: "Manage whitelisted addresses"
+    example: "add OpenAI to whitelist"
+
+# Lifecycle hooks
+hooks:
+  on_install: kamuy init
+  on_start: kamuy unlock
+
+# Environment required
+environment:
+  STEWARD_API_KEY:
+    description: "Secret API key for Steward service"
+    required: true
+
+# Configuration
+config:
+  steward_url:
+    default: "http://localhost:8080"
+    description: "URL of the Steward service"
+
+  chain_id:
+    default: 84532
+    description: "Base Sepolia testnet (84532) or Base mainnet (8453)"
+
+# Capabilities
+capabilities:
+  - gasless_transactions
+  - usdc_only
+  - policy_enforcement
+  - whitelist_management
+  - mpc_threshold_signatures
+
+# Security
+security:
+  - password_never_in_chat
+  - terminal_only_password
+  - encrypted_key_shares
+  - local_first
