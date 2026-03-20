@@ -56,7 +56,7 @@ download_file() {
 }
 
 # Download binaries from release
-RELEASE_URL="https://github.com/$REPO/releases/download/v0.1.0"
+RELEASE_URL="https://github.com/$REPO/releases/download/v0.2.0"
 
 echo "📥 Downloading kamuy CLI..."
 download_file "$RELEASE_URL/kamuy-$OS-$ARCH" "$INSTALL_DIR/kamuy"
