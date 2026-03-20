@@ -1,0 +1,15 @@
+name: kamuy-wallet
+version: 2.0.0
+description: Gasless USDC wallet for AI agents
+author: Kamuy
+commands:
+  - trigger: "pay|send|spend|buy|purchase"
+    handler: handlers.payment.handle_payment
+  - trigger: "wallet|balance|policy"
+    handler: handlers.query.handle_query
+hooks:
+  on_install: "kamuy init"
+  on_start: "kamuy unlock"
+dependencies:
+  - kamuy-cli
+  - kamuy-steward
