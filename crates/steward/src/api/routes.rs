@@ -317,14 +317,32 @@ pub async fn reject_transaction(
     }
 }
 
-/// Get current policy
+/// Get current policy (v2.0 format)
 pub async fn get_policy(
     State(state): State<ApiState>,
 ) -> impl IntoResponse {
     let request_id = uuid::Uuid::new_v4().to_string();
-    
+
     let rules = state.policy_engine.read().await.rules().await;
-    success(rules, request_id).into_response()
+
+    let policy_response = serde_json::json!({
+        "version": rules.version,
+        "max_per_tx": rules.max_per_tx,
+        "max_daily": rules.max_daily,
+        "max_weekly": rules.max_weekly,
+        "auto_add_threshold": rules.auto_add_threshold,
+        "token": rules.token,
+        "gasless": rules.gasless,
+        "whitelist": rules.whitelist.entries(),
+        "spending_tracker": {
+            "daily_spent": rules.spending_tracker.daily_spent,
+            "weekly_spent": rules.spending_tracker.weekly_spent,
+            "last_reset_daily": rules.spending_tracker.last_reset_daily,
+            "last_reset_weekly": rules.spending_tracker.last_reset_weekly,
+        }
+    });
+
+    success(policy_response, request_id).into_response()
 }
 
 /// Update policy
@@ -457,49 +475,32 @@ pub async fn check_components(state: &ApiState) -> HashMap<String, ComponentHeal
     components
 }
 
-/// Validate transaction request fields
+/// Validate transaction request fields (v2.0: USDC only)
 fn validate_transaction_fields(request: &SubmitTransactionRequest) -> Result<(), String> {
-    // Validate amount - must be positive integer (wei) or decimal string
-    // SECURITY: Reject negative amounts and invalid formats
     if request.value.is_empty() {
         return Err("Amount required".to_string());
     }
 
-    // Check amount is valid positive number
-    // SECURITY FIX: Use integer parsing only, no f64 to avoid precision issues
     match request.value.parse::<u128>() {
-        Ok(_) => {} // Valid integer (wei format)
+        Ok(_) => {}
         Err(_) => {
-            return Err("Invalid amount format: must be integer in wei".to_string());
+            return Err("Invalid amount format: must be integer in micros".to_string());
         }
     }
 
-    // Validate Ethereum address format
-    // SECURITY: Must be 42 chars, start with 0x, valid hex
     if !is_valid_ethereum_address(&request.to) {
         return Err("Invalid Ethereum address format".to_string());
     }
 
-    // Validate token
-    if request.token.is_empty() {
-        return Err("Token symbol required".to_string());
+    // v2.0: Only USDC allowed
+    if request.token.to_uppercase() != "USDC" {
+        return Err("Only USDC is supported in v2.0".to_string());
     }
 
-    // Token symbol validation (alphanumeric, 2-10 chars)
-    if request.token.len() < 2 || request.token.len() > 10 {
-        return Err("Token symbol must be 2-10 characters".to_string());
-    }
-    if !request.token.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err("Token symbol must be alphanumeric".to_string());
-    }
-
-    // Validate chain ID
     if request.chain_id == 0 {
         return Err("Invalid chain ID".to_string());
     }
 
-    // Validate chain ID is known (1=Ethereum, 8453=Base, 137=Polygon, etc.)
-    // Include testnet chains: 11155111=Sepolia, 84532=Base Sepolia
     let known_chains = [1u64, 8453, 137, 42161, 10, 11155111, 84532];
     if !known_chains.contains(&request.chain_id) {
         return Err("Unsupported chain ID".to_string());
