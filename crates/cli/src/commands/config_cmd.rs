@@ -77,6 +77,42 @@ pub async fn init(_ctx: Arc<CliContext>) -> Result<()> {
     print_success(&format!("Configuration initialized at {:?}", config.config_dir));
     println!();
     println!("Edit {:?} to customize settings.", config.config_dir.join("config.toml"));
-    
+
+    Ok(())
+}
+
+/// Get a configuration value
+pub async fn get(ctx: Arc<CliContext>, key: String) -> Result<()> {
+    // First try to load from simple config
+    if let Some(simple) = crate::config::SimpleConfig::load()? {
+        match key.as_str() {
+            "api_key" => println!("{}", simple.api_key),
+            "steward_url" | "url" => println!("{}", simple.steward_url),
+            "wallet_path" => println!("{}", simple.wallet_path.display()),
+            "steward_log" => println!("{}", simple.steward_log.display()),
+            "steward_pid_file" => println!("{}", simple.steward_pid_file.display()),
+            _ => {
+                print_error(&format!("Unknown config key: {}", key));
+                print_info("Available keys: api_key, steward_url, wallet_path, steward_log, steward_pid_file");
+                return Err(anyhow::anyhow!("Unknown config key"));
+            }
+        }
+    } else {
+        // Fall back to legacy config
+        match key.as_str() {
+            "api_key" => {
+                match &ctx.config.api_key {
+                    Some(k) => println!("{}", k),
+                    None => println!("(not set)"),
+                }
+            }
+            "steward_url" | "url" => println!("{}", ctx.config.steward_url),
+            _ => {
+                print_error(&format!("Unknown config key: {}", key));
+                return Err(anyhow::anyhow!("Unknown config key"));
+            }
+        }
+    }
+
     Ok(())
 }
