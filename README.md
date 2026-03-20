@@ -196,74 +196,43 @@ cd kamuy-wallet
 cargo build --release
 ```
 
-### 1. Initialize the Steward
+### Create a Wallet
 
 ```bash
-# Set required environment variables
-export STEWARD_API_KEY="your-secret-api-key"
-export STEWARD_DATABASE_URL="sqlite://./steward.db"
-
-# Optional: Enable Telegram notifications
-export STEWARD_TELEGRAM_TOKEN="your-bot-token"
-export STEWARD_TELEGRAM_ENABLED=true
-
-# Run the Steward service
-./target/release/kamuy-steward
-```
-
-### 2. Create a Wallet
-
-```bash
-# v2.0: One-command setup with terminal password
+# One command to full functionality
 ./target/release/kamuy init --email user@example.com
 
-Email for backup: user@example.com
-Set wallet password: ********
-Confirm password:  ********
+Password: ********
+Confirm password: ********
 
-✓ Wallet created
-✓ Backup sent to user@example.com
-✓ Steward running (unlocked)
-
+✓ Wallet created, Steward running at localhost:8080
 Your wallet address: 0xABC...1234
 ```
 
-This generates:
-- Agent Key (give this to your AI agent software)
-- Steward Key (encrypted, used by Steward service)
-- User Key (encrypted, for recovery and Tier 3 approvals)
+That's it! This single command:
+- Generates MPC key shares (Agent, Steward, User)
+- Creates an auto-generated API key stored securely
+- Starts the Steward daemon
+- Unlocks the wallet automatically
 
-### 3. Set Policy (Conversational)
+### Configure Your Agent
 
-Tell your agent:
-> "Set up my wallet policy"
-
-The agent will guide you through:
-- Max per transaction
-- Daily limit
-- Weekly limit
-- Auto-add threshold
-
-Then approve in terminal:
+Get your config values:
 ```bash
-kamuy approve policy setup-001
-Password: ********
-✓ Policy confirmed. Wallet active.
+./target/release/kamuy config get api_key
+./target/release/kamuy config get steward_url
 ```
 
-### 4. Configure Your Agent
-
 Configure your external AI agent (OpenClaw, etc.) with:
-- **Agent Key**: The key share generated in step 2
 - **Steward URL**: `http://localhost:8080`
-- **Steward API Key**: Same as `STEWARD_API_KEY` above
+- **API Key**: From `kamuy config get api_key`
 
 The agent makes synchronous HTTP calls:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/transactions \
   -H "Content-Type: application/json" \
-  -H "x-api-key: your-secret-api-key" \
+  -H "x-api-key: $(kamuy config get api_key)" \
   -d '{
     "to": "0x...",
     "amount": "50.00",
@@ -295,17 +264,31 @@ Response:
 
 ## Configuration
 
-### Environment Variables
+### Config File
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `STEWARD_API_KEY` | Yes | Secret key for Agent authentication |
-| `STEWARD_DATABASE_URL` | No | Database URL (default: `sqlite://./steward.db`) |
-| `STEWARD_API_PORT` | No | API port (default: 8080) |
-| `STEWARD_POLICY_FILE` | No | Path to policy JSON file |
-| `STEWARD_APPROVAL_TIMEOUT_SECS` | No | Approval timeout in seconds (default: 300) |
-| `STEWARD_CHAIN_ID` | No | Chain ID (default: 84532 for Base Sepolia) |
-| `STEWARD_PIMLICO_API_KEY` | No | Pimlico API key for gas sponsorship |
+Configuration is stored in `~/.kamuy/config.json`:
+
+```json
+{
+  "version": "2.0",
+  "steward_url": "http://127.0.0.1:8080",
+  "api_key": "auto-generated-64-char-hex-key",
+  "wallet_path": "~/.kamuy/wallet.json",
+  "steward_log": "~/.kamuy/steward.log",
+  "steward_pid_file": "~/.kamuy/steward.pid"
+}
+```
+
+### Environment Variables (Optional Overrides)
+
+| Variable | Description |
+|----------|-------------|
+| `KAMUY_CONFIG` | Custom config file path |
+| `KAMUY_API_KEY` | Override API key |
+| `KAMUY_STEWARD_URL` | Override Steward URL |
+| `STEWARD_TELEGRAM_TOKEN` | Telegram bot token for notifications |
+| `STEWARD_TELEGRAM_ENABLED` | Enable Telegram notifications |
+| `STEWARD_PIMLICO_API_KEY` | Pimlico API key for gas sponsorship |
 
 ## API Reference
 

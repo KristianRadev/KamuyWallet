@@ -63,45 +63,43 @@ cargo install --path crates/cli
 
 ## Quick Start
 
-### 1. Start the Steward Service
-
-The Steward must be running before using the CLI:
+### Create Your Wallet
 
 ```bash
-export STEWARD_API_KEY="your-secret-key"
-./kamuy-steward
+# One command creates wallet, starts Steward, and unlocks
+kamuy init --email your@email.com
+
+Password: ********
+Confirm password: ********
+
+✓ Wallet created, Steward running at localhost:8080
+Your wallet address: 0xABC...1234
 ```
 
-### 2. Create Your Wallet
+That's it! This single command:
+- Generates MPC key shares
+- Auto-generates and stores API key
+- Starts the Steward daemon
+- Unlocks the wallet
 
+### Configure Your AI Agent
+
+Get the config values:
 ```bash
-kamuy create-wallet
-
-# Enter password for encrypting keys
-# Save the AGENT KEY - give this to your AI agent
-# Save the USER KEY - keep this for recovery
+kamuy config get api_key
+kamuy config get steward_url
 ```
-
-### 3. Configure Your AI Agent
 
 Give these to your AI agent software (OpenClaw, etc.):
-- **Agent Key**: From wallet creation
-- **Steward URL**: `http://localhost:8080`
-- **Steward API Key**: Same as `STEWARD_API_KEY`
+- **Steward URL**: From `kamuy config get steward_url`
+- **API Key**: From `kamuy config get api_key`
 
-### 4. Set Your Spending Policy
+### Set Your Spending Policy
 
 ```bash
 kamuy policy set max_per_tx 100
 kamuy policy set require_approval_above 50
-kamuy policy set allowed_tokens USDC,USDT,DAI
-```
-
-### 5. Unlock the Steward
-
-```bash
-kamuy unlock
-# Enter Steward password
+kamuy policy set allowed_tokens USDC
 ```
 
 Now your AI agent can make payments according to your policy!
@@ -109,6 +107,38 @@ Now your AI agent can make payments according to your policy!
 ## Commands
 
 ### Wallet Management
+
+#### `init`
+Initialize a new wallet with auto-generated config and auto-start.
+
+```bash
+# Create a wallet (default: Base chain)
+kamuy init --email your@email.com
+
+# Create on a specific chain
+kamuy init --chain ethereum --email your@email.com
+
+# Reset and create new wallet (deletes existing)
+kamuy init --email your@email.com --reset
+```
+
+**Output**:
+```
+✓ Wallet created, Steward running at localhost:8080
+Your wallet address: 0xABC...1234
+
+Agent configuration:
+  Steward URL: http://127.0.0.1:8080
+  API Key: a3f8b2c1...
+  Agent Key: ag_xxxx...
+```
+
+This command:
+1. Generates MPC key shares
+2. Auto-generates a 32-byte API key
+3. Saves config to `~/.kamuy/config.json`
+4. Starts Steward daemon
+5. Unlocks wallet automatically
 
 #### `create-wallet`
 Generate MPC keys and create a smart account wallet.
@@ -143,11 +173,28 @@ USER KEY: Encrypted and stored (for recovery)
 Check wallet status and Steward connection.
 
 ```bash
-# Basic status
+# Basic status (includes steward PID)
 kamuy status
 
 # Detailed status
 kamuy status --detailed
+```
+
+#### `start`
+Start the Steward daemon.
+
+```bash
+kamuy start
+
+# With custom port
+kamuy start --port 8081
+```
+
+#### `stop`
+Stop the Steward daemon.
+
+```bash
+kamuy stop
 ```
 
 #### `unlock`
@@ -159,7 +206,7 @@ kamuy unlock
 # ✓ Steward key loaded
 ```
 
-**Required**: Must be done after starting the Steward service.
+**Note**: After `kamuy init`, the wallet is already unlocked. Use this after `kamuy stop` followed by `kamuy start`, or after a reboot.
 
 #### `lock`
 Unload the STEWARD key from memory.
@@ -245,13 +292,15 @@ kamuy history --limit 50
 Manage CLI configuration.
 
 ```bash
+# Get a config value
+kamuy config get api_key
+kamuy config get steward_url
+
 # Show current config
 kamuy config show
 
 # Set a value
-kamuy config set STEWARD_url http://localhost:8080
-kamuy config set api_key your-api-key
-kamuy config set default_chain base
+kamuy config set steward_url http://localhost:8080
 
 # Initialize config file
 kamuy config init
@@ -259,27 +308,44 @@ kamuy config init
 
 ## Configuration
 
-The CLI reads configuration from `~/.config/kamuy/config.toml`:
+The CLI stores configuration in `~/.kamuy/config.json`:
 
-```toml
-STEWARD_url = "http://localhost:8080"
-api_key = "your-api-key"
-default_chain = "base"
-default_chain_id = 8453
-use_color = true
+```json
+{
+  "version": "2.0",
+  "steward_url": "http://127.0.0.1:8080",
+  "api_key": "auto-generated-key",
+  "wallet_path": "~/.kamuy/wallet.json"
+}
 ```
 
-Configuration can also be set via environment variables:
-- `STEWARD_URL` - Steward service URL
-- `STEWARD_API_KEY` - API key for authentication
+### Config Commands
+
+```bash
+# Get config values
+kamuy config get api_key
+kamuy config get steward_url
+
+# Show all config
+kamuy config show
+
+# Set a value
+kamuy config set steward_url http://localhost:8080
+```
+
+### Environment Variables (Optional Overrides)
+
+- `KAMUY_CONFIG` - Custom config file path
+- `KAMUY_API_KEY` - Override API key
+- `KAMUY_STEWARD_URL` - Override Steward URL
 
 ## File Locations
 
-- **Config**: `~/.config/kamuy/config.toml`
-- **Data**: `~/.local/share/kamuy/`
-- **User Key**: `~/.local/share/kamuy/user.key` (backup this!)
-- **Agent Key**: Displayed once during wallet creation
-- **Steward Key**: Encrypted in database
+- **Config**: `~/.kamuy/config.json`
+- **Wallet**: `~/.kamuy/wallet.json`
+- **Steward PID**: `~/.kamuy/steward.pid`
+- **Steward Log**: `~/.kamuy/steward.log`
+- **Database**: `~/.kamuy/steward.db`
 
 ## Security
 
@@ -295,29 +361,26 @@ Configuration can also be set via environment variables:
 ### First Time Setup
 
 ```bash
-# 1. Start Steward (in separate terminal)
-export STEWARD_API_KEY="secret-api-key"
-./kamuy-steward
+# One command does it all
+kamuy init --email your@email.com
 
-# 2. Create wallet
-kamuy create-wallet
-# Save Agent Key for your AI agent
-# Save User Key in secure backup
+# Get API key for your agent
+kamuy config get api_key
 
-# 3. Configure policy
+# Set policy
 kamuy policy set max_per_tx 100
 kamuy policy set max_daily 1000
-kamuy policy set require_approval_above 50
-
-# 4. Unlock Steward
-kamuy unlock
 ```
 
 ### Daily Operations
 
 ```bash
-# Check status
+# Check status (shows steward PID and wallet info)
 kamuy status
+
+# Start/stop steward manually if needed
+kamuy start
+kamuy stop
 
 # Review pending transactions
 kamuy pending
