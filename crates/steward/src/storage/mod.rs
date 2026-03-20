@@ -30,25 +30,32 @@ pub struct StewardStorage {
 impl StewardStorage {
     /// Create new storage with database connection
     pub async fn new(database_url: &str) -> Result<Self> {
-        let pool = if database_url.starts_with("sqlite:") {
-            SqlitePoolOptions::new()
-                .max_connections(5)
-                .connect(database_url)
-                .await
-                .map_err(|e| StewardError::Database(format!("Failed to connect: {}", e)))?
+        // Normalize and enhance SQLite URL with create mode if needed
+        let url = if database_url.starts_with("sqlite:") {
+            // Already has sqlite: prefix - add mode=rwc if not present
+            if database_url.contains('?') {
+                database_url.to_string()
+            } else {
+                format!("{}?mode=rwc", database_url)
+            }
+        } else if database_url == ":memory:" {
+            "sqlite::memory:".to_string()
         } else {
-            // Assume file path
-            let url = format!("sqlite:{}", database_url);
-            SqlitePoolOptions::new()
-                .max_connections(5)
-                .connect(&url)
-                .await
-                .map_err(|e| StewardError::Database(format!("Failed to connect: {}", e)))?
+            // File path without prefix - add sqlite: and mode=rwc
+            format!("sqlite:{}?mode=rwc", database_url)
         };
-        
+
+        info!("Connecting to database: {}", url.split('?').next().unwrap_or(&url));
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .map_err(|e| StewardError::Database(format!("Failed to connect: {}", e)))?;
+
         let storage = Self { pool };
         storage.init().await?;
-        
+
         info!("Storage initialized");
         Ok(storage)
     }
