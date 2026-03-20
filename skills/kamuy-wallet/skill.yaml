@@ -1,15 +1,76 @@
 name: kamuy-wallet
 version: 2.0.0
-description: Gasless USDC wallet for AI agents
+description: Gasless USDC wallet for AI agents with policy-based spending controls
 author: Kamuy
+license: MIT OR Apache-2.0
+
 commands:
+  # Payment commands
   - trigger: "pay|send|spend|buy|purchase"
     handler: handlers.payment.handle_payment
-  - trigger: "wallet|balance|policy"
+    description: Make USDC payments to whitelisted or approved addresses
+    examples:
+      - "Pay OpenAI $47 for API credits"
+      - "Send $100 to 0x1234567890abcdef..."
+      - "Spend $50 on AWS"
+
+  # Query commands
+  - trigger: "wallet|balance|policy|limit|whitelist|history|pending|transaction"
     handler: handlers.query.handle_query
+    description: Query wallet status, balances, policy, and history
+    examples:
+      - "What's my wallet balance?"
+      - "Show my spending limits"
+      - "Who's in my whitelist?"
+      - "Show recent transactions"
+      - "What's pending approval?"
+
 hooks:
-  on_install: "kamuy init"
+  on_install: "kamuy init --email"
   on_start: "kamuy unlock"
+  on_stop: "kamuy lock"
+
 dependencies:
   - kamuy-cli
   - kamuy-steward
+
+config:
+  steward_url:
+    default: "http://localhost:8080"
+    description: Steward API URL
+  default_chain:
+    default: 8453
+    description: Default chain ID (Base)
+  telegram_enabled:
+    default: true
+    description: Enable Telegram approval notifications
+
+security:
+  # Operations requiring terminal password
+  password_required:
+    - wallet_unlock
+    - policy_change
+    - address_approval_over_threshold
+
+  # Operations that can use Telegram buttons
+  telegram_approval:
+    - transaction_over_limit
+    - new_address_under_threshold
+
+chains:
+  - id: 8453
+    name: Base
+    status: primary
+  - id: 84532
+    name: Base Sepolia
+    status: testnet
+  - id: 137
+    name: Polygon
+    status: supported
+  - id: 42161
+    name: Arbitrum
+    status: supported
+
+documentation:
+  readme: ./README.md
+  api_reference: ./api-reference.md
