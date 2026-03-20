@@ -14,7 +14,9 @@ pub mod policy;
 pub mod recover;
 pub mod rotate;
 pub mod sign;
+pub mod start;
 pub mod status;
+pub mod stop;
 pub mod unlock;
 
 use crate::context::CliContext;
