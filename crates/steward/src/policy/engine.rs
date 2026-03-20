@@ -207,9 +207,18 @@ impl Clone for PolicyEngine {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use std::sync::{Mutex, OnceLock};
+
+    // Mutex to serialize tests that use STEWARD_POLICY_DIR env var
+    static POLICY_DIR_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn get_mutex() -> &'static Mutex<()> {
+        POLICY_DIR_MUTEX.get_or_init(|| Mutex::new(()))
+    }
 
     #[tokio::test]
     async fn test_policy_engine_new() {
+        let _guard = get_mutex().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let policy_path = temp_dir.path().join("policy.json");
 
@@ -228,6 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_policy_update() {
+        let _guard = get_mutex().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let policy_path = temp_dir.path().join("policy.json");
 
@@ -247,6 +257,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_policy_save_and_reload() {
+        let _guard = get_mutex().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let policy_path = temp_dir.path().join("policy.json");
 
@@ -270,6 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_policy_validation() {
+        let _guard = get_mutex().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let policy_path = temp_dir.path().join("policy.json");
 
