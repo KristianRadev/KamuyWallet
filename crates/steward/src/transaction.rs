@@ -593,3 +593,143 @@ fn parse_hex_u256(s: &str) -> Result<u128> {
     u128::from_str_radix(s, 16)
         .map_err(|e| StewardError::Pimlico(format!("Invalid hex number: {}", e)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_executor_config_from_pimlico_config() {
+        let pimlico_config = crate::config::PimlicoConfig {
+            api_key: Some("test_api_key".to_string()),
+            chain_id: 84532,
+            rpc_url: Some("https://custom.rpc.url".to_string()),
+            enabled: true,
+            entry_point: Some("0x1234567890123456789012345678901234567890".to_string()),
+            factory: Some("0xabcdef0123456789abcdef0123456789abcdef01".to_string()),
+            usdc: Some("0xusdc012345678901234567890123456789012345".to_string()),
+        };
+
+        let executor_config = ExecutorConfig::from_pimlico_config(&pimlico_config);
+
+        assert_eq!(executor_config.pimlico_api_key, "test_api_key");
+        assert_eq!(executor_config.chain_id, 84532);
+        assert_eq!(executor_config.rpc_url, "https://custom.rpc.url");
+        assert_eq!(executor_config.entry_point, "0x1234567890123456789012345678901234567890");
+        assert_eq!(executor_config.factory, "0xabcdef0123456789abcdef0123456789abcdef01");
+        assert_eq!(executor_config.usdc, "0xusdc012345678901234567890123456789012345");
+    }
+
+    #[test]
+    fn test_executor_config_defaults() {
+        let pimlico_config = crate::config::PimlicoConfig {
+            api_key: None,
+            chain_id: 1, // Ethereum mainnet
+            rpc_url: None,
+            enabled: false,
+            entry_point: None,
+            factory: None,
+            usdc: None,
+        };
+
+        let executor_config = ExecutorConfig::from_pimlico_config(&pimlico_config);
+
+        // Should use defaults
+        assert!(executor_config.pimlico_api_key.is_empty());
+        assert_eq!(executor_config.chain_id, 1);
+        // RPC URL should be generated
+        assert_eq!(executor_config.rpc_url, "https://api.pimlico.io/v1/ethereum/rpc");
+        // Should use default entry point
+        assert_eq!(executor_config.entry_point, ENTRY_POINT_V07);
+    }
+
+    #[test]
+    fn test_user_operation_new_usdc_transfer() {
+        let user_op = UserOperation::new_usdc_transfer(
+            "0xsender1234567890123456789012345678901234",
+            "0xrecipient123456789012345678901234567890",
+            "1.5", // 1.5 USDC
+            0,
+        );
+
+        assert_eq!(user_op.sender, "0xsender1234567890123456789012345678901234");
+        assert_eq!(user_op.nonce, "0x0");
+        // Call data should start with transfer(address,uint256) selector
+        assert!(user_op.callData.starts_with("0xa9059cbb"));
+        assert_eq!(user_op.signature, "0x");
+    }
+
+    #[test]
+    fn test_user_operation_hash() {
+        let user_op = UserOperation::new_usdc_transfer(
+            "0xsender1234567890123456789012345678901234",
+            "0xrecipient123456789012345678901234567890",
+            "1.0",
+            1,
+        );
+
+        let hash = user_op.hash(ENTRY_POINT_V07, 84532);
+
+        // Hash should be 32 bytes
+        assert_eq!(hash.len(), 32);
+
+        // Same inputs should produce same hash
+        let hash2 = user_op.hash(ENTRY_POINT_V07, 84532);
+        assert_eq!(hash, hash2);
+    }
+
+    #[test]
+    fn test_build_init_code() {
+        let signing_coordinator = Arc::new(SigningCoordinator::new());
+        let config = ExecutorConfig::default();
+        let executor = TransactionExecutor::new(config, signing_coordinator).unwrap();
+
+        let salt = [0u8; 32];
+        let init_code = executor.build_init_code(
+            "0xagent1234567890123456789012345678901234",
+            "0xsteward1234567890123456789012345678901",
+            "0xuser1234567890123456789012345678901234",
+            &salt,
+        );
+
+        // Should start with factory address
+        assert!(init_code.starts_with(&executor.config.factory));
+        // Should contain the createAccount selector
+        assert!(init_code.contains("785ffb37"));
+    }
+
+    #[test]
+    fn test_mpc_signature_to_bytes() {
+        let sig = MpcSignature {
+            party_indices: 0x10, // Agent=0, Steward=1 => (1 << 4) | 0 = 0x10
+            sig1: [1u8; 65],
+            sig2: [2u8; 65],
+        };
+
+        let bytes = sig.to_bytes();
+
+        // Total length should be 131 bytes
+        assert_eq!(bytes.len(), 131);
+
+        // First byte is party indices
+        assert_eq!(bytes[0], 0x10);
+
+        // Next 65 bytes are sig1
+        assert_eq!(&bytes[1..66], &[1u8; 65]);
+
+        // Last 65 bytes are sig2
+        assert_eq!(&bytes[66..131], &[2u8; 65]);
+    }
+
+    #[test]
+    fn test_parse_hex_u256() {
+        assert_eq!(parse_hex_u256("0x0").unwrap(), 0);
+        assert_eq!(parse_hex_u256("0x1").unwrap(), 1);
+        assert_eq!(parse_hex_u256("0xff").unwrap(), 255);
+        assert_eq!(parse_hex_u256("0x1000").unwrap(), 4096);
+
+        // Without 0x prefix should still work
+        assert_eq!(parse_hex_u256("ff").unwrap(), 255);
+    }
+}

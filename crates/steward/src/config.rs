@@ -508,4 +508,69 @@ mod tests {
         assert_eq!(config.requests_per_minute, 60);
         assert_eq!(config.burst_size, 10);
     }
+
+    #[test]
+    fn test_pimlico_config_from_env() {
+        let config = PimlicoConfig::from_env().unwrap();
+        // Default chain ID is Base Sepolia
+        assert_eq!(config.chain_id, 84532);
+        // Without env vars, api_key should be None
+        assert!(config.api_key.is_none());
+    }
+
+    #[test]
+    fn test_pimlico_config_from_file() {
+        // Test parsing from JSON string
+        let json = r#"{
+            "apiKey": "test_key_123",
+            "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+            "factory": "0x8D9dd4062D0D68d4d8Dc439aE9762DEde9bcb821",
+            "chainId": 84532,
+            "rpcUrl": "https://sepolia.base.org",
+            "usdc": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+        }"#;
+
+        let temp_file = std::env::temp_dir().join("test_pimlico_config.json");
+        std::fs::write(&temp_file, json).unwrap();
+
+        let config = PimlicoConfig::from_file(temp_file.to_str().unwrap()).unwrap();
+
+        assert_eq!(config.api_key, Some("test_key_123".to_string()));
+        assert_eq!(config.chain_id, 84532);
+        assert_eq!(config.rpc_url, Some("https://sepolia.base.org".to_string()));
+        assert_eq!(config.entry_point, Some("0x0000000071727De22E5E9d8BAf0edAc6f37da032".to_string()));
+        assert_eq!(config.factory, Some("0x8D9dd4062D0D68d4d8Dc439aE9762DEde9bcb821".to_string()));
+        assert_eq!(config.usdc, Some("0x036CbD53842c5426634e7929541eC2318f3dCF7e".to_string()));
+        assert!(config.enabled);
+
+        // Cleanup
+        std::fs::remove_file(&temp_file).ok();
+    }
+
+    #[test]
+    fn test_pimlico_config_get_rpc_url() {
+        // Test default RPC URL generation
+        let config = PimlicoConfig {
+            api_key: Some("test".to_string()),
+            chain_id: 84532,
+            rpc_url: None,
+            enabled: true,
+            entry_point: None,
+            factory: None,
+            usdc: None,
+        };
+        assert_eq!(config.get_rpc_url(), "https://api.pimlico.io/v1/base-sepolia/rpc");
+
+        // Test with custom RPC URL
+        let config_with_url = PimlicoConfig {
+            api_key: Some("test".to_string()),
+            chain_id: 84532,
+            rpc_url: Some("https://custom.rpc.url".to_string()),
+            enabled: true,
+            entry_point: None,
+            factory: None,
+            usdc: None,
+        };
+        assert_eq!(config_with_url.get_rpc_url(), "https://custom.rpc.url");
+    }
 }

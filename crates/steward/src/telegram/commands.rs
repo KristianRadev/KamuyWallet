@@ -1460,6 +1460,51 @@ mod tests {
         assert_eq!(addresses.len(), 20, "All addresses should be unique");
         assert_eq!(private_keys.len(), 20, "All private keys should be unique");
     }
+
+    /// Validation test: verify /send argument parsing
+    #[test]
+    fn test_parse_send_args_valid() {
+        // Valid address and amount
+        let result = parse_send_args("/send 0x1234567890123456789012345678901234567890 1.5");
+        assert!(result.is_some());
+        let args = result.unwrap();
+        assert_eq!(args.to, "0x1234567890123456789012345678901234567890");
+        assert_eq!(args.amount, "1.5");
+
+        // Valid with different amount formats
+        let result = parse_send_args("/send 0xabcdef0123456789abcdef0123456789abcdef01 0.001");
+        assert!(result.is_some());
+        let args = result.unwrap();
+        assert_eq!(args.amount, "0.001");
+
+        // Valid with integer amount
+        let result = parse_send_args("/send 0x0000000000000000000000000000000000000001 100");
+        assert!(result.is_some());
+        let args = result.unwrap();
+        assert_eq!(args.amount, "100");
+    }
+
+    #[test]
+    fn test_parse_send_args_invalid() {
+        // Missing arguments
+        assert!(parse_send_args("/send").is_none());
+        assert!(parse_send_args("/send 0x1234").is_none());
+
+        // Invalid address - too short
+        assert!(parse_send_args("/send 0x1234 1.0").is_none());
+
+        // Invalid address - no 0x prefix
+        assert!(parse_send_args("/send 1234567890123456789012345678901234567890 1.0").is_none());
+
+        // Invalid address - wrong length
+        assert!(parse_send_args("/send 0x123456789012345678901234567890123456789 1.0").is_none());
+
+        // Invalid amount - not a number
+        assert!(parse_send_args("/send 0x1234567890123456789012345678901234567890 abc").is_none());
+
+        // Too many arguments
+        assert!(parse_send_args("/send 0x1234 1.0 extra").is_none());
+    }
 }
 /// Handle /deletewallet command - deletes existing wallet from storage
 async fn handle_delete_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppState>) -> Result<()> {
