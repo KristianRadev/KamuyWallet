@@ -94,14 +94,39 @@ pub async fn execute(
     let agent_key = format!("ag_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
     let user_key = format!("us_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
 
-    // Step 6: Save keys locally
+    // Step 6: Save wallet file
     println!();
-    let spinner = create_spinner("Saving keys...");
+    let spinner = create_spinner("Saving wallet...");
 
-    // In production, save encrypted keys via Steward API
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    // Save wallet.json with wallet info
+    let wallet_path = crate::config::SimpleConfig::wallet_path()?;
+    let wallet_dir = wallet_path.parent()
+        .ok_or_else(|| anyhow::anyhow!("Invalid wallet path"))?;
+    std::fs::create_dir_all(wallet_dir)?;
 
-    spinner.finish_with_message("Keys saved locally!".to_string());
+    let wallet_data = serde_json::json!({
+        "version": "2.0",
+        "address": wallet_address,
+        "chain": chain,
+        "chain_id": chain_id,
+        "agent_key": agent_key,
+        "user_key": user_key,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+    });
+
+    let wallet_json = serde_json::to_string_pretty(&wallet_data)?;
+    std::fs::write(&wallet_path, wallet_json)?;
+
+    // Set restrictive permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&wallet_path)?.permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&wallet_path, perms)?;
+    }
+
+    spinner.finish_with_message("Wallet saved!".to_string());
 
     // Step 7: Handle email backup (if provided)
     if let Some(ref email_addr) = email {
