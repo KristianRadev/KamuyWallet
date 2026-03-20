@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_password_strength_valid() {
-        assert!(validate_password_strength("MyP@ssw0rd123!").is_ok());
+        assert!(validate_password_strength("SecureK3y!2024").is_ok());
     }
 
     #[test]
