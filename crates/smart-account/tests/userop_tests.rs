@@ -5,19 +5,21 @@
 use kamuy_smart_account::{Chain, UserOpBuilder, UserOperation, GasEstimator};
 use ethers::types::{Address, U256, Bytes};
 
+const BASE_CHAIN_ID: u64 = 8453;
+
 #[test]
 fn test_user_op_builder_basic() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
-    let user_op = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .nonce(U256::from(1))
         .call_data(vec![0x01, 0x02, 0x03])
         .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
+
     assert_eq!(user_op.sender, sender);
     assert_eq!(user_op.nonce, U256::from(1));
     assert_eq!(user_op.call_data.to_vec(), vec![0x01, 0x02, 0x03]);
@@ -30,16 +32,17 @@ fn test_user_op_builder_with_gas_limits() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
-    let user_op = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .gas_limits(
             U256::from(100_000),
             U256::from(50_000),
             U256::from(25_000),
         )
+        .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
+
     assert_eq!(user_op.call_gas_limit, U256::from(100_000));
     assert_eq!(user_op.verification_gas_limit, U256::from(50_000));
     assert_eq!(user_op.pre_verification_gas, U256::from(25_000));
@@ -50,14 +53,15 @@ fn test_user_op_builder_with_paymaster() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
+
     let paymaster_data = vec![0xab, 0xcd, 0xef];
-    
-    let user_op = UserOpBuilder::new(Chain::Base, sender)
-        .paymaster(&paymaster_data)
+
+    let user_op = UserOpBuilder::new(BASE_CHAIN_ID, sender)
+        .paymaster(paymaster_data.clone())
+        .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
+
     assert_eq!(user_op.paymaster_and_data.to_vec(), paymaster_data);
 }
 
@@ -86,19 +90,19 @@ fn test_user_op_hash() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
-    let user_op = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .nonce(U256::from(1))
         .call_data(vec![0x01])
         .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
+
     let entry_point = Chain::Base.entry_point();
-    let hash = user_op.hash(entry_point, 8453);
-    
+    let hash = user_op.hash(entry_point, BASE_CHAIN_ID);
+
     // Hash should be non-zero
-    assert_ne!(hash.0.as_bytes(), &[0u8; 32]);
+    assert_ne!(hash.0, [0u8; 32]);
 }
 
 #[test]
@@ -106,25 +110,25 @@ fn test_user_op_hash_deterministic() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
-    let user_op1 = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op1 = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .nonce(U256::from(1))
         .call_data(vec![0x01])
         .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
-    let user_op2 = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op2 = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .nonce(U256::from(1))
         .call_data(vec![0x01])
         .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
+
     let entry_point = Chain::Base.entry_point();
-    let hash1 = user_op1.hash(entry_point, 8453);
-    let hash2 = user_op2.hash(entry_point, 8453);
-    
+    let hash1 = user_op1.hash(entry_point, BASE_CHAIN_ID);
+    let hash2 = user_op2.hash(entry_point, BASE_CHAIN_ID);
+
     // Same inputs should produce same hash
     assert_eq!(hash1.0, hash2.0);
 }
@@ -134,16 +138,17 @@ fn test_user_op_total_gas() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
-    let user_op = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .gas_limits(
             U256::from(100_000),
             U256::from(50_000),
             U256::from(25_000),
         )
+        .fees(U256::from(1000000000), U256::from(1000000))
         .build()
         .unwrap();
-    
+
     let total = user_op.total_gas();
     assert_eq!(total, U256::from(175_000));
 }
@@ -153,8 +158,8 @@ fn test_user_op_max_cost() {
     let sender = "0x1234567890123456789012345678901234567890"
         .parse()
         .unwrap();
-    
-    let user_op = UserOpBuilder::new(Chain::Base, sender)
+
+    let user_op = UserOpBuilder::new(BASE_CHAIN_ID, sender)
         .gas_limits(
             U256::from(100_000),
             U256::from(50_000),
@@ -163,7 +168,7 @@ fn test_user_op_max_cost() {
         .fees(U256::from(10), U256::from(1))
         .build()
         .unwrap();
-    
+
     let max_cost = user_op.max_cost();
     assert_eq!(max_cost, U256::from(1_750_000)); // 175_000 * 10
 }

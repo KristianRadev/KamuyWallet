@@ -4,7 +4,7 @@
 
 use crate::commands::create_spinner;
 use crate::context::CliContext;
-use crate::{print_error, print_info, print_table};
+use crate::{print_info, print_table};
 use anyhow::Result;
 use colored::Colorize;
 use std::sync::Arc;

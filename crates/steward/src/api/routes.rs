@@ -932,7 +932,7 @@ pub async fn create_wallet_with_password(
 
     // Create an AgentKeyShare from the steward key bytes for encryption
     let steward_key_share = {
-        use kamuy_mpc_core::types::{AgentKeyShare, KeyShareMetadata, PartyRole};
+        use kamuy_mpc_core::types::{AgentKeyShare, PartyRole};
         use kamuy_mpc_core::utils::math::{bytes_to_scalar, generator, point_mul};
 
         let secret_share = match bytes_to_scalar(&steward_key_bytes) {
@@ -969,7 +969,7 @@ pub async fn create_wallet_with_password(
 
     // Create a user key share from the user_key string (placeholder for demo)
     let user_key_share = {
-        use kamuy_mpc_core::types::{AgentKeyShare, KeyShareMetadata, PartyRole};
+        use kamuy_mpc_core::types::{AgentKeyShare, PartyRole};
         use kamuy_mpc_core::utils::math::{bytes_to_scalar, generator, point_mul};
 
         // Use the provided user_key string as seed for the key share

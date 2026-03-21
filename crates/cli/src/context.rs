@@ -5,7 +5,6 @@
 use crate::config::CliConfig;
 use anyhow::{Context, Result};
 use kamuy_mpc_core::{AgentKeyShare, decrypt_key_share, encrypt_key_share};
-use std::path::Path;
 
 /// CLI context shared across commands
 pub struct CliContext {
@@ -30,6 +29,7 @@ impl CliContext {
     }
     
     /// Load user key from file
+    #[allow(dead_code)]
     pub async fn load_user_key(&mut self, password: &str) -> Result<()> {
         let key_path = self.config.user_key_path();
         
@@ -52,6 +52,7 @@ impl CliContext {
     }
     
     /// Save user key to file
+    #[allow(dead_code)]
     pub async fn save_user_key(&self, key: &AgentKeyShare, password: &str) -> Result<()> {
         let key_path = self.config.user_key_path();
         
@@ -139,6 +140,7 @@ impl StewardClient {
     }
     
     /// Submit transaction
+    #[allow(dead_code)]
     pub async fn submit_transaction(
         &self,
         request: &kamuy_steward::types::TransactionRequest,
@@ -277,6 +279,7 @@ impl StewardClient {
 
     /// Reject transaction with password (TerminalPassword approval level)
     /// SECURITY: Validates TX ID format before making request
+    #[allow(dead_code)]
     pub async fn reject_transaction_with_password(&self, id: &str, password: &str) -> Result<()> {
         // Validate TX ID is valid UUID format
         if !is_valid_uuid(id) {
@@ -300,6 +303,7 @@ impl StewardClient {
     }
 
     /// Get pending policy change requests
+    #[allow(dead_code)]
     pub async fn get_pending_policy_changes(&self) -> Result<Vec<kamuy_steward::types::PolicyChangeRecord>> {
         let resp = self.build_request(reqwest::Method::GET, "/api/v1/policy/requests")
             .send()
@@ -364,6 +368,7 @@ impl StewardClient {
     }
 
     /// Reject policy change request with password (TerminalPassword approval level)
+    #[allow(dead_code)]
     pub async fn reject_policy_change(&self, id: &str, password: &str) -> Result<()> {
         // Validate ID is valid UUID format
         if !is_valid_uuid(id) {
@@ -501,6 +506,7 @@ impl StewardClient {
     }
 
     /// Check if steward key is loaded
+    #[allow(dead_code)]
     pub async fn is_unlocked(&self) -> Result<bool> {
         let resp = self.build_request(reqwest::Method::GET, "/api/v1/unlock")
             .send()
@@ -524,6 +530,7 @@ pub struct StewardHealth {
 }
 
 /// Steward error response
+#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 pub struct StewardError {
     pub code: String,

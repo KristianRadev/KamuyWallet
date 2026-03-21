@@ -17,7 +17,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, crate_version, crate_name};
 use colored::Colorize;
 use std::sync::Arc;
-use tracing::{info, error};
 
 mod commands;
 mod config;

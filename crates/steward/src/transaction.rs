@@ -3,9 +3,7 @@
 //! Executes transactions on-chain using MPC signing and Pimlico gas sponsorship.
 
 use crate::error::{Result, StewardError};
-use crate::signing::{SigningCoordinator, MpcSignature, PARTY_AGENT, PARTY_STEWARD};
-use crate::types::TransactionRequest;
-use ethers::types::{Address, U256, H256, Bytes};
+use crate::signing::{SigningCoordinator, MpcSignature};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,6 +66,8 @@ impl ExecutorConfig {
 }
 
 /// UserOperation for ERC-4337
+/// Field names match the ERC-4337 specification
+#[allow(non_snake_case)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOperation {
     /// Sender address (smart account)

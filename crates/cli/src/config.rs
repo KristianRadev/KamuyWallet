@@ -140,6 +140,7 @@ impl CliConfig {
     }
     
     /// Get agent key path
+    #[allow(dead_code)]
     pub fn agent_key_path(&self) -> PathBuf {
         self.agent_key_file.clone()
             .unwrap_or_else(|| self.data_dir.join("agent.key"))
@@ -352,6 +353,7 @@ pub fn chain_id_from_name(name: &str) -> Option<u64> {
 }
 
 /// Get chain name from chain ID
+#[allow(dead_code)]
 pub fn chain_name_from_id(id: u64) -> Option<String> {
     match id {
         1 => Some("ethereum".to_string()),

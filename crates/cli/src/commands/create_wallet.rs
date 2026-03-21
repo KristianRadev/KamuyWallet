@@ -5,9 +5,8 @@
 use crate::commands::{confirm, create_spinner, prompt_password};
 use crate::context::CliContext;
 use crate::{print_error, print_info, print_success, print_warning};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
-use kamuy_mpc_core::{PartyRole, SessionConfig};
 use std::sync::Arc;
 
 /// Execute create-wallet command

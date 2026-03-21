@@ -24,6 +24,7 @@ use anyhow::Result;
 use std::sync::Arc;
 
 /// Command trait for all CLI commands
+#[allow(dead_code)]
 #[async_trait::async_trait]
 pub trait Command: Send + Sync {
     async fn execute(&self, ctx: Arc<CliContext>) -> Result<()>;
@@ -55,6 +56,7 @@ pub fn confirm(prompt: &str) -> Result<bool> {
 }
 
 /// Prompt for input
+#[allow(dead_code)]
 pub fn prompt_input(prompt: &str) -> Result<String> {
     use dialoguer::Input;
     
@@ -91,6 +93,7 @@ pub fn format_address(addr: &str) -> String {
 }
 
 /// Format amount for display
+#[allow(dead_code)]
 pub fn format_amount(amount: &str, decimals: u8) -> String {
     if let Ok(wei) = amount.parse::<u128>() {
         let divisor = 10u128.pow(decimals as u32);

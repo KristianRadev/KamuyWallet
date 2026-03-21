@@ -9,9 +9,7 @@
 //! For testnet, we use local signing where Steward holds both Agent and Steward keys.
 
 use crate::error::{StewardError, Result};
-use crate::types::TransactionRequest;
 use k256::ecdsa::{SigningKey, Signature, signature::Signer};
-use sha3::{Keccak256, Digest};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;

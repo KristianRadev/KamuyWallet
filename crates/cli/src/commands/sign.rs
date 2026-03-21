@@ -4,7 +4,7 @@
 
 use crate::commands::{confirm, create_spinner, parse_transaction_data, prompt_password};
 use crate::context::CliContext;
-use crate::{print_error, print_info, print_success, print_warning};
+use crate::{print_error, print_info};
 use anyhow::{Context, Result};
 use colored::Colorize;
 use std::sync::Arc;

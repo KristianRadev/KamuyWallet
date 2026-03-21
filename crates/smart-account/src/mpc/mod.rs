@@ -15,9 +15,9 @@
 //! - 2 = User
 //!
 //! Examples:
-//! - 0x01 = Party 0 (Agent) and Party 1 (Steward)
-//! - 0x02 = Party 0 (Agent) and Party 2 (User)
-//! - 0x12 = Party 1 (Steward) and Party 2 (User)
+//! - 0x10 = Party 0 (Agent, lower nibble) and Party 1 (Steward, upper nibble)
+//! - 0x20 = Party 0 (Agent) and Party 2 (User)
+//! - 0x21 = Party 1 (Steward) and Party 2 (User)
 
 use ethers::types::{Address, H256};
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
@@ -296,7 +296,8 @@ mod tests {
 
         let encoded = mpc_sig.encode();
         assert_eq!(encoded.len(), 131);
-        assert_eq!(encoded[0], 0x01); // Agent (0) | Steward (1) << 4
+        // Agent (0) | Steward (1) << 4 = 0 | 16 = 0x10
+        assert_eq!(encoded[0], 0x10);
 
         let decoded = MpcSignature::decode(&encoded).unwrap();
         assert_eq!(decoded.party1, Party::Agent);

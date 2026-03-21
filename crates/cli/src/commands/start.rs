@@ -10,7 +10,7 @@ use colored::Colorize;
 use std::process::{Command, Stdio};
 
 #[cfg(unix)]
-use libc::{kill, SIGTERM};
+use libc::kill;
 
 /// Start steward daemon
 pub async fn execute(port: Option<u16>) -> Result<()> {

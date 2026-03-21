@@ -121,6 +121,7 @@ impl Phase3Progress {
     }
     
     /// Mark a file as completed
+    #[allow(dead_code)]
     pub fn mark_file_completed(&mut self, file: impl Into<String>) {
         let file = file.into();
         if !self.completed_files.contains(&file) {
@@ -131,6 +132,7 @@ impl Phase3Progress {
     }
     
     /// Set current task
+    #[allow(dead_code)]
     pub fn set_task(&mut self, task: impl Into<String>) {
         self.current_task = task.into();
         self.last_updated = SystemTime::now();
@@ -156,6 +158,7 @@ impl Phase3Progress {
     }
     
     /// Mark entire phase as complete
+    #[allow(dead_code)]
     pub fn mark_complete(&mut self) {
         self.is_complete = true;
         self.current_task = "complete".to_string();
@@ -197,6 +200,7 @@ impl Phase3Progress {
     }
     
     /// Clear progress (for testing or restart)
+    #[allow(dead_code)]
     pub fn clear() -> Result<()> {
         let file_path = Self::progress_file();
         if file_path.exists() {
@@ -227,6 +231,7 @@ impl ProgressTracker {
     }
     
     /// Mark file complete and save
+    #[allow(dead_code)]
     pub fn file_completed(&mut self, file: impl Into<String>) -> Result<()> {
         self.progress.mark_file_completed(file);
         self.progress.save()?;
@@ -241,6 +246,7 @@ impl ProgressTracker {
     }
     
     /// Set task and save
+    #[allow(dead_code)]
     pub fn set_task(&mut self, task: impl Into<String>) -> Result<()> {
         self.progress.set_task(task);
         self.progress.save()?;
@@ -255,6 +261,7 @@ impl ProgressTracker {
     }
     
     /// Mark complete and save
+    #[allow(dead_code)]
     pub fn complete(&mut self) -> Result<()> {
         self.progress.mark_complete();
         self.progress.save()?;
@@ -262,6 +269,7 @@ impl ProgressTracker {
     }
     
     /// Get inner progress
+    #[allow(dead_code)]
     pub fn progress(&self) -> &Phase3Progress {
         &self.progress
     }

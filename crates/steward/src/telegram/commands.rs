@@ -7,7 +7,6 @@ use crate::types::{format_amount, TransactionStatus};
 use std::collections::HashMap;
 
 use std::sync::Arc;
-use std::str::FromStr;
 
 /// Format balance line for display in Telegram
 fn format_balance_line(eth_amount: &str, eth_token: &str, usdc_amount: &str, usdc_token: &str) -> String {
@@ -761,7 +760,7 @@ async fn handle_create_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppSt
 
     // Factory address for CREATE2 (Base Sepolia)
     // This is the deployed MpcSmartAccountFactory address
-    let factory_addr = "0x8D9dd4062D0D68d4d8Dc439aE9762DEde9bcb821";
+    let _factory_addr = "0x8D9dd4062D0D68d4d8Dc439aE9762DEde9bcb821";
 
     // Compute salt from agent + steward addresses (deterministic)
     let agent_addr_bytes = hex::decode(agent_address.strip_prefix("0x").unwrap_or(&agent_address))
@@ -774,7 +773,7 @@ async fn handle_create_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppSt
     salt_input.extend_from_slice(&steward_addr_bytes);
     let mut salt_hasher = Keccak256::new();
     salt_hasher.update(&salt_input);
-    let salt: [u8; 32] = salt_hasher.finalize().into();
+    let _salt: [u8; 32] = salt_hasher.finalize().into();
 
     // FIX #3: Use correct init_code from MpcSmartAccountFactory
     // 

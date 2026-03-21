@@ -2,7 +2,7 @@
 //!
 //! Recover wallet with user key.
 
-use crate::commands::{confirm, create_spinner, prompt_password};
+use crate::commands::{create_spinner, prompt_password};
 use crate::context::CliContext;
 use crate::{print_error, print_info, print_success};
 use anyhow::Result;

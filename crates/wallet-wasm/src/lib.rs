@@ -53,6 +53,7 @@ pub fn hello() -> String {
 #[cfg(test)]
 mod tests {
     use wasm_bindgen_test::*;
+    use super::hello;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
