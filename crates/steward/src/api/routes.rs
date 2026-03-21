@@ -881,6 +881,214 @@ pub async fn approve_policy_change_request(
     }
 }
 
+/// Request body for wallet creation with password
+#[derive(serde::Deserialize)]
+pub struct CreateWalletWithPasswordRequest {
+    /// Wallet address (computed from CREATE2 or placeholder)
+    pub address: String,
+    /// Chain ID
+    pub chain_id: u64,
+    /// Agent key (hex encoded, for user to give to AI)
+    pub agent_key: String,
+    /// User key (hex encoded, for user backup)
+    pub user_key: String,
+    /// Email for backup (optional)
+    pub email: Option<String>,
+    /// Password to encrypt the steward key
+    pub password: String,
+}
+
+/// Create wallet from CLI with password (stores everything and auto-unlocks)
+pub async fn create_wallet_with_password(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateWalletWithPasswordRequest>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Save wallet info to storage using existing method
+    // Use agent_key as the public_key placeholder (in production, this would be from DKG)
+    if let Err(e) = state.storage.set_wallet(&body.address, body.chain_id, &body.agent_key).await {
+        return error_response(e, request_id).into_response();
+    }
+
+    // Generate a random steward private key (32 bytes)
+    let steward_key_bytes: [u8; 32] = {
+        use rand::RngCore;
+        let mut rng = rand::thread_rng();
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+        bytes
+    };
+
+    // Create an AgentKeyShare from the steward key bytes for encryption
+    let steward_key_share = {
+        use kamuy_mpc_core::types::{AgentKeyShare, KeyShareMetadata, PartyRole};
+        use kamuy_mpc_core::utils::math::{bytes_to_scalar, generator, point_mul};
+
+        let secret_share = match bytes_to_scalar(&steward_key_bytes) {
+            Ok(s) => s,
+            Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Invalid key bytes: {}", e), request_id).into_response(),
+        };
+        let public_key = point_mul(&generator(), &secret_share);
+
+        AgentKeyShare::new(
+            1, // party_id for Steward
+            PartyRole::Steward,
+            secret_share,
+            public_key,
+            vec![public_key], // public_shares (just our own)
+            [0u8; 32], // chain_code (placeholder)
+        )
+    };
+
+    // Encrypt and save steward key with password
+    let encrypted_steward = match kamuy_mpc_core::encrypt_key_share(&steward_key_share, &body.password) {
+        Ok(enc) => enc,
+        Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Key encryption failed: {}", e), request_id).into_response(),
+    };
+
+    if let Err(e) = state.storage.save_steward_key(&encrypted_steward).await {
+        return error_response(e, request_id).into_response();
+    }
+
+    // Hash password and save user key with password hash for verification
+    use sha3::{Keccak256, Digest};
+    let mut hasher = Keccak256::new();
+    hasher.update(body.password.as_bytes());
+    let password_hash = hex::encode(hasher.finalize());
+
+    // Create a user key share from the user_key string (placeholder for demo)
+    let user_key_share = {
+        use kamuy_mpc_core::types::{AgentKeyShare, KeyShareMetadata, PartyRole};
+        use kamuy_mpc_core::utils::math::{bytes_to_scalar, generator, point_mul};
+
+        // Use the provided user_key string as seed for the key share
+        let user_key_bytes = hex::decode(body.user_key.trim_start_matches("0x"))
+            .unwrap_or_else(|_| body.user_key.as_bytes().to_vec());
+        let mut bytes = [0u8; 32];
+        bytes[..user_key_bytes.len().min(32)].copy_from_slice(&user_key_bytes[..user_key_bytes.len().min(32)]);
+
+        let secret_share = match bytes_to_scalar(&bytes) {
+            Ok(s) => s,
+            Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Invalid user key: {}", e), request_id).into_response(),
+        };
+        let public_key = point_mul(&generator(), &secret_share);
+
+        AgentKeyShare::new(
+            2, // party_id for User
+            PartyRole::User,
+            secret_share,
+            public_key,
+            vec![public_key],
+            [0u8; 32],
+        )
+    };
+
+    let encrypted_user = match kamuy_mpc_core::encrypt_key_share(&user_key_share, &body.password) {
+        Ok(enc) => enc,
+        Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("User key encryption failed: {}", e), request_id).into_response(),
+    };
+
+    if let Err(e) = state.storage.save_user_key(&encrypted_user, &password_hash).await {
+        return error_response(e, request_id).into_response();
+    }
+
+    // Load keys into signing coordinator for immediate signing capability
+    if let Err(e) = state.signing_coordinator.load_keys_from_hex(
+        &hex::encode(steward_key_bytes),
+        &body.agent_key,
+        Some(&body.user_key),
+    ).await {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to load signing keys: {}", e), request_id).into_response();
+    }
+
+    // Mark the key as loaded in state
+    {
+        let mut key_guard = state.key_share.write().await;
+        *key_guard = Some(steward_key_share);
+    }
+
+    info!(
+        address = %body.address,
+        chain_id = body.chain_id,
+        "Wallet created and unlocked from CLI"
+    );
+
+    success(serde_json::json!({
+        "address": body.address,
+        "chain_id": body.chain_id,
+        "created": true,
+        "unlocked": true
+    }), request_id).into_response()
+}
+
+/// Request body for unlock
+#[derive(serde::Deserialize)]
+pub struct UnlockRequest {
+    /// User password to decrypt the steward key
+    pub password: String,
+}
+
+/// Unlock the steward key (load into memory)
+pub async fn unlock_steward(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<UnlockRequest>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Load the key share
+    match state.load_key_share(&body.password).await {
+        Ok(()) => {
+            info!("Steward key unlocked successfully");
+            success(serde_json::json!({"unlocked": true}), request_id).into_response()
+        }
+        Err(e) => {
+            warn!("Failed to unlock steward key: {}", e);
+            error(StatusCode::UNAUTHORIZED, &format!("Unlock failed: {}", e), request_id).into_response()
+        }
+    }
+}
+
+/// Check if steward key is loaded
+pub async fn check_unlocked(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    let is_loaded = state.is_key_loaded().await;
+    success(serde_json::json!({"key_loaded": is_loaded}), request_id).into_response()
+}
+
 /// Request body for transaction approval with password
 #[derive(serde::Deserialize)]
 pub struct ApproveTransactionWithPasswordRequest {

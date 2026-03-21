@@ -94,54 +94,7 @@ pub async fn execute(
     let agent_key = format!("ag_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
     let user_key = format!("us_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
 
-    // Step 6: Save wallet file
-    println!();
-    let spinner = create_spinner("Saving wallet...");
-
-    // Save wallet.json with wallet info
-    let wallet_path = crate::config::SimpleConfig::wallet_path()?;
-    let wallet_dir = wallet_path.parent()
-        .ok_or_else(|| anyhow::anyhow!("Invalid wallet path"))?;
-    std::fs::create_dir_all(wallet_dir)?;
-
-    let wallet_data = serde_json::json!({
-        "version": "2.0",
-        "address": wallet_address,
-        "chain": chain,
-        "chain_id": chain_id,
-        "agent_key": agent_key,
-        "user_key": user_key,
-        "created_at": chrono::Utc::now().to_rfc3339(),
-    });
-
-    let wallet_json = serde_json::to_string_pretty(&wallet_data)?;
-    std::fs::write(&wallet_path, wallet_json)?;
-
-    // Set restrictive permissions
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&wallet_path)?.permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(&wallet_path, perms)?;
-    }
-
-    spinner.finish_with_message("Wallet saved!".to_string());
-
-    // Step 7: Handle email backup (if provided)
-    if let Some(ref email_addr) = email {
-        println!();
-        let spinner = create_spinner(&format!("Sending encrypted backup to {}...", email_addr));
-
-        // In v2.0, this would call Steward API to send encrypted backup
-        // For now, simulate success
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-        spinner.finish_with_message("Encrypted backup sent!".to_string());
-        print_info("Check your email for the encrypted backup");
-    }
-
-    // Step 8: Save simplified config with auto-generated API key
+    // Step 6: Save simplified config with auto-generated API key
     println!();
     let spinner = create_spinner("Creating configuration...");
 
@@ -150,38 +103,60 @@ pub async fn execute(
 
     spinner.finish_with_message("Configuration saved!".to_string());
 
-    // Step 9: Start steward daemon
+    // Step 7: Start steward daemon
     println!();
     start_steward(&simple_config).await?;
 
-    // Step 10: Auto-unlock wallet with the password user just entered
+    // Step 8: Create wallet in Steward (this stores encrypted steward key and auto-unlocks)
     println!();
-    let spinner = create_spinner("Unlocking wallet...");
+    let spinner = create_spinner("Creating wallet in Steward...");
 
-    // NOTE: After starting steward, we need to reconnect.
-    // The ctx.steward client was created before steward started.
-    // We create a fresh client for the unlock call.
     let steward_client = crate::context::StewardClient::new(
         &simple_config.steward_url,
         Some(simple_config.api_key.clone()),
     );
 
-    match steward_client.unlock(&user_password).await {
+    match steward_client.create_wallet(
+        &wallet_address,
+        chain_id,
+        &agent_key,
+        &user_key,
+        email.as_deref(),
+        &user_password,
+    ).await {
         Ok(_) => {
-            spinner.finish_with_message("Wallet unlocked!".green().to_string());
+            spinner.finish_with_message("Wallet created and unlocked!".green().to_string());
+
+            // Also save wallet.json locally for user reference
+            let wallet_path = crate::config::SimpleConfig::wallet_path()?;
+            let wallet_data = serde_json::json!({
+                "version": "2.0",
+                "address": wallet_address,
+                "chain": chain,
+                "chain_id": chain_id,
+                "agent_key": agent_key,
+                "user_key": user_key,
+                "created_at": chrono::Utc::now().to_rfc3339(),
+            });
+            let wallet_json = serde_json::to_string_pretty(&wallet_data)?;
+            std::fs::write(&wallet_path, wallet_json)?;
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&wallet_path)?.permissions();
+                perms.set_mode(0o600);
+                std::fs::set_permissions(&wallet_path, perms)?;
+            }
         }
         Err(e) => {
-            spinner.finish_with_message("Unlock skipped".yellow().to_string());
-            print_warning(&format!("Could not auto-unlock: {}", e));
-            print_info("Run 'kamuy unlock' manually");
+            spinner.finish_with_message("Wallet creation failed".red().to_string());
+            print_error(&format!("Failed to create wallet in Steward: {}", e));
+            print_info("Save your keys and run 'kamuy unlock' after steward is running");
         }
     }
 
-    // NOTE: The ctx.steward client is now stale (was created before steward started).
-    // This is acceptable - init completes the setup and exits. Subsequent commands
-    // will load fresh config and create new steward clients.
-
-    // Step 11: Display results
+    // Step 9: Handle email backup (if provided)
     println!();
     print_success("Wallet created successfully!");
     println!();

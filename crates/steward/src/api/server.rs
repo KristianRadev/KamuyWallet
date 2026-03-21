@@ -75,7 +75,11 @@ fn build_router(state: ApiState) -> Router {
         .route("/api/v1/transactions/:id/approve-with-password", post(routes::approve_transaction_with_password))
         // Wallet routes
         .route("/api/v1/wallet", get(routes::get_wallet))
+        .route("/api/v1/wallet/create", post(routes::create_wallet_with_password))
         .route("/api/v1/balances", get(routes::get_balances))
+        // Unlock routes
+        .route("/api/v1/unlock", post(routes::unlock_steward))
+        .route("/api/v1/unlock", get(routes::check_unlocked))
         // Queue routes
         .route("/api/v1/queue/status", get(routes::get_queue_status))
         // Admin routes for MPC signing keys (testing)

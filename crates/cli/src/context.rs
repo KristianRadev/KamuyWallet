@@ -454,16 +454,65 @@ impl StewardClient {
     }
     
     /// Unlock wallet (load Steward key)
-    pub async fn unlock(&self, _password: &str) -> Result<()> {
-        // This would be an API call to unlock the Steward
-        // For now, we just verify the password works by checking health
-        let health = self.health().await?;
+    pub async fn unlock(&self, password: &str) -> Result<()> {
+        let resp = self.build_request(reqwest::Method::POST, "/api/v1/unlock")
+            .json(&serde_json::json!({ "password": password }))
+            .send()
+            .await
+            .context("Failed to connect to Steward service")?;
 
-        if health.status != "healthy" {
-            return Err(anyhow::anyhow!("Steward is not healthy"));
+        if !resp.status().is_success() {
+            let err: StewardError = resp.json().await?;
+            return Err(anyhow::anyhow!("Unlock failed: {}", err.error));
         }
 
         Ok(())
+    }
+
+    /// Create wallet with password (stores encrypted steward key and auto-unlocks)
+    pub async fn create_wallet(
+        &self,
+        address: &str,
+        chain_id: u64,
+        agent_key: &str,
+        user_key: &str,
+        email: Option<&str>,
+        password: &str,
+    ) -> Result<()> {
+        let resp = self.build_request(reqwest::Method::POST, "/api/v1/wallet/create")
+            .json(&serde_json::json!({
+                "address": address,
+                "chain_id": chain_id,
+                "agent_key": agent_key,
+                "user_key": user_key,
+                "email": email,
+                "password": password,
+            }))
+            .send()
+            .await
+            .context("Failed to connect to Steward service")?;
+
+        if !resp.status().is_success() {
+            let err: StewardError = resp.json().await?;
+            return Err(anyhow::anyhow!("Wallet creation failed: {}", err.error));
+        }
+
+        Ok(())
+    }
+
+    /// Check if steward key is loaded
+    pub async fn is_unlocked(&self) -> Result<bool> {
+        let resp = self.build_request(reqwest::Method::GET, "/api/v1/unlock")
+            .send()
+            .await
+            .context("Failed to connect to Steward service")?;
+
+        if !resp.status().is_success() {
+            return Ok(false);
+        }
+
+        let result: serde_json::Value = resp.json().await?;
+        Ok(result["data"]["key_loaded"].as_bool().unwrap_or(false))
     }
 }
 
