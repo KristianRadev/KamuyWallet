@@ -23,8 +23,6 @@ pub struct CliConfig {
     pub data_dir: PathBuf,
     /// User key file path
     pub user_key_file: Option<PathBuf>,
-    /// Agent key file path
-    pub agent_key_file: Option<PathBuf>,
     /// Whether to use colors in output
     pub use_color: bool,
     /// Default gas limit
@@ -51,7 +49,6 @@ impl Default for CliConfig {
             config_dir,
             data_dir,
             user_key_file: None,
-            agent_key_file: None,
             use_color: true,
             default_gas_limit: 100000,
             auto_submit: false,
@@ -138,14 +135,7 @@ impl CliConfig {
         self.user_key_file.clone()
             .unwrap_or_else(|| self.data_dir.join("user.key"))
     }
-    
-    /// Get agent key path
-    #[allow(dead_code)]
-    pub fn agent_key_path(&self) -> PathBuf {
-        self.agent_key_file.clone()
-            .unwrap_or_else(|| self.data_dir.join("agent.key"))
-    }
-    
+
     /// Initialize configuration
     pub fn init() -> Result<Self> {
         let config = Self::default();
@@ -352,21 +342,6 @@ pub fn chain_id_from_name(name: &str) -> Option<u64> {
     }
 }
 
-/// Get chain name from chain ID
-#[allow(dead_code)]
-pub fn chain_name_from_id(id: u64) -> Option<String> {
-    match id {
-        1 => Some("ethereum".to_string()),
-        8453 => Some("base".to_string()),
-        137 => Some("polygon".to_string()),
-        42161 => Some("arbitrum".to_string()),
-        10 => Some("optimism".to_string()),
-        11155111 => Some("sepolia".to_string()),
-        84532 => Some("base-sepolia".to_string()),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,7 +368,6 @@ mod tests {
             config_dir: temp_dir.path().to_path_buf(),
             data_dir: temp_dir.path().to_path_buf(),
             user_key_file: None,
-            agent_key_file: None,
             use_color: true,
             default_gas_limit: 100000,
             auto_submit: false,

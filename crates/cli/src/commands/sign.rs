@@ -2,9 +2,9 @@
 //!
 //! Sign transaction via MPC.
 
-use crate::commands::{confirm, create_spinner, parse_transaction_data, prompt_password};
+use crate::commands::{confirm, create_spinner, parse_transaction_data};
 use crate::context::CliContext;
-use crate::{print_error, print_info};
+use crate::print_error;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use std::sync::Arc;
@@ -55,17 +55,6 @@ pub async fn execute(
     if !confirm("Sign this transaction?")? {
         println!("Aborted.");
         return Ok(());
-    }
-
-    // Load user key if needed
-    if !ctx.is_user_key_loaded() {
-        print_info("User key required for signing.");
-        let _password = prompt_password("Enter your wallet password")?;
-
-        let spinner = create_spinner("Loading key...");
-        // In a real implementation, load and decrypt user key
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        spinner.finish_with_message("Key loaded".to_string());
     }
 
     println!();
