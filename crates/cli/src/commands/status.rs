@@ -54,9 +54,12 @@ pub async fn execute(ctx: Arc<CliContext>, detailed: bool) -> Result<()> {
             return Ok(());
         }
     }
-    
+
+    // Check if wallet is unlocked
+    let is_unlocked = ctx.steward.is_unlocked().await.unwrap_or(false);
+    println!("  Key: {}", if is_unlocked { "✓ Loaded (unlocked)".green() } else { "✗ Not loaded".yellow() });
     println!();
-    
+
     // Get wallet info
     match ctx.steward.get_wallet().await? {
         Some(wallet) => {

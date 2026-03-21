@@ -355,6 +355,21 @@ impl StewardClient {
 
         Ok(())
     }
+
+    /// Check if steward key is loaded (wallet is unlocked)
+    pub async fn is_unlocked(&self) -> Result<bool> {
+        let resp = self.build_request(reqwest::Method::GET, "/api/v1/unlock")
+            .send()
+            .await
+            .context("Failed to connect to Steward service")?;
+
+        if !resp.status().is_success() {
+            return Ok(false);
+        }
+
+        let result: serde_json::Value = resp.json().await?;
+        Ok(result["data"]["key_loaded"].as_bool().unwrap_or(false))
+    }
 }
 
 /// Steward health response
