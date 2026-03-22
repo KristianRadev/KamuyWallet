@@ -69,10 +69,6 @@ enum Commands {
         #[arg(short, long, default_value = "base")]
         chain: String,
 
-        /// Email for encrypted backup
-        #[arg(short, long)]
-        email: Option<String>,
-
         /// Output file for keys (JSON format)
         #[arg(short, long)]
         output: Option<String>,
@@ -329,9 +325,9 @@ async fn main() -> Result<()> {
 
     // Execute command and track progress
     match cli.command {
-        Commands::Init { chain, email, output, reset } => {
+        Commands::Init { chain, output, reset } => {
             progress_tracker.set_current_command("init")?;
-            init::execute(ctx, chain, email, output, reset).await?;
+            init::execute(ctx, chain, output, reset).await?;
             progress_tracker.command_completed("init")?;
         }
         Commands::CreateWallet { chain, output } => {

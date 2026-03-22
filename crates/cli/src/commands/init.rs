@@ -14,7 +14,6 @@ use std::sync::Arc;
 pub async fn execute(
     ctx: Arc<CliContext>,
     chain: String,
-    email: Option<String>,
     output: Option<String>,
     reset: bool,
 ) -> Result<()> {
@@ -79,7 +78,11 @@ pub async fn execute(
         }
     }
 
-    // Step 5: Generate MPC keys
+    // Step 5: Prompt for email (optional)
+    println!();
+    let email = prompt_email_optional()?;
+
+    // Step 6: Generate MPC keys
     println!();
     let spinner = create_spinner("Generating MPC keys (3 key shares)...");
 
@@ -94,7 +97,7 @@ pub async fn execute(
     let agent_key = format!("ag_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
     let user_key = format!("us_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
 
-    // Step 6: Save simplified config with auto-generated API key
+    // Step 7: Save simplified config with auto-generated API key
     println!();
     let spinner = create_spinner("Creating configuration...");
 
@@ -103,11 +106,11 @@ pub async fn execute(
 
     spinner.finish_with_message("Configuration saved!".to_string());
 
-    // Step 7: Start steward daemon
+    // Step 8: Start steward daemon
     println!();
     start_steward(&simple_config).await?;
 
-    // Step 8: Create wallet in Steward (this stores encrypted steward key and auto-unlocks)
+    // Step 9: Create wallet in Steward (this stores encrypted steward key and auto-unlocks)
     println!();
     let spinner = create_spinner("Creating wallet in Steward...");
 
@@ -136,6 +139,7 @@ pub async fn execute(
                 "chain_id": chain_id,
                 "agent_key": agent_key,
                 "user_key": user_key,
+                "email": email,
                 "created_at": chrono::Utc::now().to_rfc3339(),
             });
             let wallet_json = serde_json::to_string_pretty(&wallet_data)?;
@@ -156,7 +160,7 @@ pub async fn execute(
         }
     }
 
-    // Step 9: Handle email backup (if provided)
+    // Step 10: Display wallet info
     println!();
     print_success("Wallet created successfully!");
     println!();
@@ -364,6 +368,42 @@ fn validate_password_strength(password: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Prompt for optional email address
+fn prompt_email_optional() -> Result<Option<String>> {
+    use dialoguer::Input;
+
+    println!("{}", "Email Backup (optional)".bold());
+    println!("  Provide an email to receive an encrypted backup of your keys.");
+    println!("  Press Enter to skip.");
+    println!();
+
+    let email: String = Input::new()
+        .with_prompt("Email address")
+        .allow_empty(true)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("Failed to read email: {}", e))?;
+
+    let email = email.trim().to_string();
+
+    if email.is_empty() {
+        println!("  Skipped - no email provided");
+        return Ok(None);
+    }
+
+    // Validate email format
+    if !email.contains('@') || !email.contains('.') {
+        print_warning("Invalid email format - skipping email backup");
+        return Ok(None);
+    }
+
+    // Note about the feature
+    println!();
+    print_info("Email will be stored for future backup notifications.");
+    print_warning("Note: Email backup feature is coming soon. Your email has been saved.");
+
+    Ok(Some(email))
 }
 
 #[cfg(test)]
