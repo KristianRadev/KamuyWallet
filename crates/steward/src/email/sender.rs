@@ -132,7 +132,7 @@ fn encrypt_backup(user_key: &str, wallet_address: &str) -> String {
     // Hash the combined string for verification
     let mut hasher = Keccak256::new();
     hasher.update(combined.as_bytes());
-    let hash = hasher.finalize();
+    let _hash = hasher.finalize();
 
     // Encode in a simple format (base64 + hash for verification)
     let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, combined);
@@ -140,7 +140,7 @@ fn encrypt_backup(user_key: &str, wallet_address: &str) -> String {
 }
 
 /// Build the plain text email body
-fn build_text_body(wallet_address: &str, encrypted_backup: &str) -> String {
+fn build_text_body(wallet_address: &str, _encrypted_backup: &str) -> String {
     format!(
         r#"Kamuy Wallet Recovery Key Backup
 
