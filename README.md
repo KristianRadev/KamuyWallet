@@ -184,7 +184,9 @@ kamuy-wallet/
 
 ## Distribution
 
-Pre-built binaries are available from the [releases page](https://github.com/KristianRadev/KamuyWallet/releases).
+**Download binaries from the [Releases page](https://github.com/KristianRadev/KamuyWallet/releases/latest).**
+
+> ⚠️ **Do not download binaries from the repository root** - always use the Releases page to get the latest stable version. The repo root binaries may be outdated or not exist.
 
 ## Quick Start
 
@@ -210,9 +212,10 @@ export PATH="$HOME/.local/bin:$PATH"
 # Create directories
 mkdir -p ~/.kamuy ~/.local/bin
 
-# Download binaries from latest release
-curl -sSL https://github.com/KristianRadev/KamuyWallet/releases/download/v0.2.0/kamuy -o ~/.local/bin/kamuy
-curl -sSL https://github.com/KristianRadev/KamuyWallet/releases/download/v0.2.0/kamuy-steward -o ~/.local/bin/kamuy-steward
+# Download binaries from LATEST release
+LATEST=$(curl -sSL https://api.github.com/repos/KristianRadev/KamuyWallet/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+curl -sSL "https://github.com/KristianRadev/KamuyWallet/releases/download/${LATEST}/kamuy" -o ~/.local/bin/kamuy
+curl -sSL "https://github.com/KristianRadev/KamuyWallet/releases/download/${LATEST}/kamuy-steward" -o ~/.local/bin/kamuy-steward
 
 # Make executable
 chmod +x ~/.local/bin/kamuy ~/.local/bin/kamuy-steward
@@ -233,10 +236,12 @@ cargo build --release
 
 ```bash
 # One command to full functionality
-./target/release/kamuy init --email user@example.com
+./kamuy init
 
+# You'll be prompted for:
 Password: ********
 Confirm password: ********
+Email (optional): user@example.com
 
 ✓ Wallet created, Steward running at localhost:8080
 Your wallet address: 0xABC...1234
