@@ -825,7 +825,7 @@ async fn handle_create_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppSt
         user_address.strip_prefix("0x").unwrap_or(&user_address)
     );
 
-    state.storage.set_wallet(&wallet_address, chain_id, &public_key)
+    state.storage.set_wallet(&wallet_address, chain_id, &public_key, None)
         .await
         .map_err(|e| StewardError::Database(e.to_string()))?;
 

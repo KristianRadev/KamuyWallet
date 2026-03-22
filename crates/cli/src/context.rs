@@ -334,7 +334,7 @@ impl StewardClient {
         user_key: &str,
         email: Option<&str>,
         password: &str,
-    ) -> Result<()> {
+    ) -> Result<CreateWalletResponse> {
         let resp = self.build_request(reqwest::Method::POST, "/api/v1/wallet/create")
             .json(&serde_json::json!({
                 "address": address,
@@ -366,7 +366,11 @@ impl StewardClient {
             return Err(anyhow::anyhow!("Wallet creation failed: {}", error_msg));
         }
 
-        Ok(())
+        // Parse response
+        let response: ApiResponse<CreateWalletResponse> = resp.json().await
+            .context("Failed to parse wallet creation response")?;
+
+        response.data.ok_or_else(|| anyhow::anyhow!("No data in response"))
     }
 
     /// Check if steward key is loaded (wallet is unlocked)
@@ -396,6 +400,30 @@ pub struct StewardHealth {
 #[derive(Debug, serde::Deserialize)]
 pub struct StewardError {
     pub error: String,
+}
+
+/// API response wrapper
+#[derive(Debug, serde::Deserialize)]
+pub struct ApiResponse<T> {
+    pub data: Option<T>,
+    pub request_id: Option<String>,
+}
+
+/// Response from wallet creation
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CreateWalletResponse {
+    pub address: String,
+    pub chain_id: u64,
+    pub created: bool,
+    pub unlocked: bool,
+    pub email_backup: Option<EmailBackupResult>,
+}
+
+/// Email backup result from wallet creation
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct EmailBackupResult {
+    pub sent: bool,
+    pub message: String,
 }
 
 /// Validate UUID format

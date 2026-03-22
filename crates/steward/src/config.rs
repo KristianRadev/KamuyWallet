@@ -35,6 +35,8 @@ pub struct StewardConfig {
     pub approval: ApprovalConfig,
     /// Pimlico gas sponsorship configuration
     pub pimlico: PimlicoConfig,
+    /// Email backup configuration
+    pub email: EmailConfig,
 }
 
 impl StewardConfig {
@@ -50,6 +52,7 @@ impl StewardConfig {
         let security = SecurityConfig::from_env()?;
         let approval = ApprovalConfig::from_env()?;
         let pimlico = PimlicoConfig::from_env()?;
+        let email = EmailConfig::from_env()?;
 
         Ok(Self {
             api,
@@ -60,6 +63,7 @@ impl StewardConfig {
             security,
             approval,
             pimlico,
+            email,
         })
     }
 
@@ -490,6 +494,50 @@ impl PimlicoConfig {
     }
 }
 
+/// Email configuration for wallet key backup
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailConfig {
+    /// SMTP server host
+    pub smtp_host: Option<String>,
+    /// SMTP server port
+    pub smtp_port: u16,
+    /// SMTP authentication username
+    pub smtp_user: Option<String>,
+    /// SMTP authentication password
+    pub smtp_pass: Option<String>,
+    /// From email address
+    pub from_address: Option<String>,
+}
+
+impl EmailConfig {
+    /// Load email configuration from environment variables
+    pub fn from_env() -> Result<Self> {
+        let smtp_host = std::env::var("STEWARD_SMTP_HOST").ok();
+        let smtp_user = std::env::var("STEWARD_SMTP_USER").ok();
+        let smtp_pass = std::env::var("STEWARD_SMTP_PASS").ok();
+        let from_address = std::env::var("STEWARD_EMAIL_FROM").ok();
+
+        Ok(Self {
+            smtp_host,
+            smtp_port: std::env::var("STEWARD_SMTP_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(587),
+            smtp_user,
+            smtp_pass,
+            from_address,
+        })
+    }
+
+    /// Check if email sending is configured
+    pub fn is_configured(&self) -> bool {
+        self.smtp_host.is_some()
+            && self.smtp_user.is_some()
+            && self.smtp_pass.is_some()
+            && self.from_address.is_some()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,5 +620,13 @@ mod tests {
             usdc: None,
         };
         assert_eq!(config_with_url.get_rpc_url(), "https://custom.rpc.url");
+    }
+
+    #[test]
+    fn test_email_config_defaults() {
+        let config = EmailConfig::from_env().unwrap();
+        // Without env vars, SMTP should not be configured
+        assert!(!config.is_configured());
+        assert_eq!(config.smtp_port, 587);
     }
 }

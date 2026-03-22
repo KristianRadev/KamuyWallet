@@ -917,7 +917,7 @@ pub async fn create_wallet_with_password(
 
     // Save wallet info to storage using existing method
     // Use agent_key as the public_key placeholder (in production, this would be from DKG)
-    if let Err(e) = state.storage.set_wallet(&body.address, body.chain_id, &body.agent_key).await {
+    if let Err(e) = state.storage.set_wallet(&body.address, body.chain_id, &body.agent_key, body.email.as_deref()).await {
         return error_response(e, request_id).into_response();
     }
 
@@ -1024,11 +1024,39 @@ pub async fn create_wallet_with_password(
         "Wallet created and unlocked from CLI"
     );
 
+    // Send backup email if email is provided
+    let email_result = if let Some(ref email) = body.email {
+        match crate::email::send_backup_email(
+            &state.config.email,
+            email,
+            &body.user_key,
+            &body.address,
+        ).await {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(error = %e, "Failed to send backup email");
+                crate::email::EmailBackupResult {
+                    sent: false,
+                    message: format!("Email backup failed: {}", e),
+                }
+            }
+        }
+    } else {
+        crate::email::EmailBackupResult {
+            sent: false,
+            message: "No email provided".to_string(),
+        }
+    };
+
     success(serde_json::json!({
         "address": body.address,
         "chain_id": body.chain_id,
         "created": true,
-        "unlocked": true
+        "unlocked": true,
+        "email_backup": {
+            "sent": email_result.sent,
+            "message": email_result.message
+        }
     }), request_id).into_response()
 }
 

@@ -146,7 +146,7 @@ pub async fn execute(
 
     spinner.set_message("Creating wallet in Steward...".to_string());
 
-    let wallet_created = match steward_client.create_wallet(
+    let (wallet_created, email_backup_result) = match steward_client.create_wallet(
         &wallet_address,
         chain_id,
         &agent_key,
@@ -154,15 +154,15 @@ pub async fn execute(
         email.as_deref(),
         &user_password,
     ).await {
-        Ok(_) => {
+        Ok(response) => {
             spinner.finish_with_message("Wallet created and unlocked!".green().to_string());
-            true
+            (true, response.email_backup)
         }
         Err(e) => {
             spinner.finish_with_message("Wallet creation failed".red().to_string());
             print_error(&format!("Failed to create wallet in Steward: {}", e));
             print_info("Save your keys and run 'kamuy unlock' after steward is running");
-            false
+            (false, None)
         }
     };
 
@@ -177,6 +177,17 @@ pub async fn execute(
     println!("{}", "Your wallet:".bold());
     println!("  Address: {}", wallet_address.cyan());
     println!("  Network: {} ({})", chain, chain_id);
+
+    // Show email backup status
+    if let Some(ref backup_result) = email_backup_result {
+        println!();
+        if backup_result.sent {
+            print_success(&format!("Backup email sent to {}", email.as_deref().unwrap_or("your email")));
+        } else {
+            print_info(&backup_result.message);
+        }
+    }
+
     println!();
 
     // Display Agent Key prominently for AI agent integration
@@ -480,8 +491,7 @@ fn prompt_email_optional() -> Result<Option<String>> {
 
     // Note about the feature
     println!();
-    print_info("Email will be stored for future backup notifications.");
-    print_warning("Note: Email backup feature is coming soon. Your email has been saved.");
+    print_info("Email will be used to send you an encrypted backup of your recovery key.");
 
     Ok(Some(email))
 }

@@ -90,8 +90,9 @@ impl SigningCoordinator {
         let steward_key = SigningKey::from_bytes((&steward_bytes[..]).into())
             .map_err(|e| StewardError::Validation(format!("Invalid steward key: {}", e)))?;
         
-        // Parse agent key
-        let agent_bytes = hex::decode(agent_private_hex.trim_start_matches("0x"))
+        // Parse agent key - strip both 0x and ag_ prefixes for backwards compatibility
+        let agent_cleaned = agent_private_hex.trim_start_matches("0x").trim_start_matches("ag_");
+        let agent_bytes = hex::decode(agent_cleaned)
             .map_err(|e| StewardError::Validation(format!("Invalid agent key hex: {}", e)))?;
         let agent_key = SigningKey::from_bytes((&agent_bytes[..]).into())
             .map_err(|e| StewardError::Validation(format!("Invalid agent key: {}", e)))?;
@@ -100,9 +101,10 @@ impl SigningCoordinator {
         *self.steward_key.lock().await = Some(steward_key);
         *self.agent_key.lock().await = Some(agent_key);
         
-        // Optionally load user key
+        // Optionally load user key - strip both 0x and us_ prefixes for backwards compatibility
         if let Some(user_hex) = user_private_hex {
-            let user_bytes = hex::decode(user_hex.trim_start_matches("0x"))
+            let user_cleaned = user_hex.trim_start_matches("0x").trim_start_matches("us_");
+            let user_bytes = hex::decode(user_cleaned)
                 .map_err(|e| StewardError::Validation(format!("Invalid user key hex: {}", e)))?;
             let user_key = SigningKey::from_bytes((&user_bytes[..]).into())
                 .map_err(|e| StewardError::Validation(format!("Invalid user key: {}", e)))?;

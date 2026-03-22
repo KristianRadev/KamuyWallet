@@ -92,6 +92,7 @@ impl StewardStorage {
                 address TEXT NOT NULL,
                 chain_id INTEGER NOT NULL,
                 public_key TEXT NOT NULL,
+                email TEXT,
                 created_at TEXT NOT NULL
             )
             "#
@@ -479,19 +480,20 @@ impl StewardStorage {
     pub async fn get_wallet(&self) -> Result<Option<WalletInfo>> {
         let row = sqlx::query(
             r#"
-            SELECT address, chain_id, public_key FROM wallet LIMIT 1
+            SELECT address, chain_id, public_key, email FROM wallet LIMIT 1
             "#
         )
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| StewardError::Database(format!("Failed to get wallet: {}", e)))?;
-        
+
         match row {
             Some(row) => {
                 Ok(Some(WalletInfo {
                     address: row.get("address"),
                     chain_id: row.get::<i64, _>("chain_id") as u64,
                     public_key: row.get("public_key"),
+                    email: row.get("email"),
                 }))
             }
             None => Ok(None),
@@ -499,30 +501,46 @@ impl StewardStorage {
     }
     
     /// Save wallet info (create or update)
-    pub async fn set_wallet(&self, address: &str, chain_id: u64, public_key: &str) -> Result<()> {
+    pub async fn set_wallet(&self, address: &str, chain_id: u64, public_key: &str, email: Option<&str>) -> Result<()> {
         let created_at = chrono::Utc::now().to_rfc3339();
-        
+
         // Delete existing wallet first (we only want one)
         sqlx::query("DELETE FROM wallet")
             .execute(&self.pool)
             .await
             .map_err(|e| StewardError::Database(format!("Failed to delete existing wallet: {}", e)))?;
-        
+
         // Insert new wallet
         sqlx::query(
             r#"
-            INSERT INTO wallet (address, chain_id, public_key, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO wallet (address, chain_id, public_key, email, created_at)
+            VALUES (?, ?, ?, ?, ?)
             "#
         )
         .bind(address)
         .bind(chain_id as i64)
         .bind(public_key)
+        .bind(email)
         .bind(&created_at)
         .execute(&self.pool)
         .await
         .map_err(|e| StewardError::Database(format!("Failed to save wallet: {}", e)))?;
-        
+
+        Ok(())
+    }
+
+    /// Update wallet email
+    pub async fn set_wallet_email(&self, email: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE wallet SET email = ? WHERE id = 1
+            "#
+        )
+        .bind(email)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StewardError::Database(format!("Failed to update wallet email: {}", e)))?;
+
         Ok(())
     }
     
@@ -840,6 +858,7 @@ pub struct WalletInfo {
     pub address: String,
     pub chain_id: u64,
     pub public_key: String,
+    pub email: Option<String>,
 }
 
 /// Parse status string

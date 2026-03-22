@@ -46,6 +46,7 @@
 pub mod api;
 pub mod approval;
 pub mod config;
+pub mod email;
 pub mod error;
 pub mod policy;
 pub mod queue;
