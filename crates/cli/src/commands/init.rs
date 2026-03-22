@@ -94,8 +94,15 @@ pub async fn execute(
 
     // Generate keys (simulated - in production, this would be from DKG)
     let wallet_address = generate_wallet_address();
-    let agent_key = format!("ag_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
-    let user_key = format!("us_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+    // Generate proper 32-byte hex keys (64 hex chars) for MPC compatibility
+    use rand::RngCore;
+    let mut agent_key_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut agent_key_bytes);
+    let agent_key = hex::encode(agent_key_bytes);
+
+    let mut user_key_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut user_key_bytes);
+    let user_key = hex::encode(user_key_bytes);
 
     // Step 7: Save simplified config with auto-generated API key
     println!();
@@ -172,11 +179,34 @@ pub async fn execute(
     println!("  Network: {} ({})", chain, chain_id);
     println!();
 
-    // Display agent key for configuration
-    println!("{}", "Agent configuration:".bold());
+    // Display Agent Key prominently for AI agent integration
+    println!("{}", "═══════════════════════════════════════════════════════════".green().bold());
+    println!("{}", "  🔑 AGENT KEY - GIVE THIS TO YOUR AI AGENT".green().bold());
+    println!("{}", "═══════════════════════════════════════════════════════════".green().bold());
+    println!();
+    println!("  Agent Key: {}", agent_key.cyan().bold());
+    println!();
+    println!("This key enables AI agents to:");
+    println!("  • Check your wallet balance");
+    println!("  • Send payments to whitelisted addresses");
+    println!("  • Request policy changes (requires your approval)");
+    println!();
+    println!("Add this to your agent's configuration:");
+    println!("  {{");
+    println!("    \"kamuy\": {{");
+    println!("      \"steward_url\": \"http://127.0.0.1:8080\",");
+    println!("      \"api_key\": \"{}\",", simple_config.api_key.dimmed());
+    println!("      \"agent_key\": \"{}\"", agent_key.cyan());
+    println!("    }}");
+    println!("  }}");
+    println!();
+    println!("{}", "The Agent Key is NOT secret - it's safe to share with trusted AI agents.".green());
+    println!();
+    println!("{}", "───────────────────────────────────────────────────────────".dimmed());
+    println!();
+    println!("{}", "Steward Configuration:".bold());
     println!("  Steward URL: http://127.0.0.1:8080");
     println!("  API Key: {}", simple_config.api_key.dimmed());
-    println!("  Agent Key: {}", agent_key.cyan());
     println!();
 
     // Display default spending limits
@@ -198,7 +228,7 @@ pub async fn execute(
     println!();
     println!("  User Key: {}", user_key.yellow().bold());
     println!();
-    println!("{}", "This is your recovery key. If you lose access to this device,".yellow());
+    println!("{}", "This is your RECOVERY key. If you lose access to this device,".yellow());
     println!("{}", "you can use this key to recover your wallet.".yellow());
     println!();
     println!("{}", "SECURITY REQUIREMENTS:".red().bold());
@@ -208,8 +238,14 @@ pub async fn execute(
     println!("  • This key is NOT stored anywhere on disk");
     println!("  • If you lose this key, you cannot recover your wallet");
     println!();
-    println!("{}", "The Agent Key above can be given to AI agents for spending.".green());
-    println!("{}", "The User Key is for YOUR recovery only - keep it secret!".red());
+    println!("{}", "───────────────────────────────────────────────────────────".dimmed());
+    println!();
+    println!("{}", "KEY PURPOSES:".bold());
+    println!("  {} {} - For AI agents to interact with your wallet", "Agent Key:".green(), "(above)".green());
+    println!("  {} {} - For YOU to recover your wallet", "User Key:".yellow(), "(this key)".yellow());
+    println!();
+    println!("{}", "The Agent Key is for spending, the User Key is for recovery.".cyan());
+    println!("{}", "Keep your User Key secret - it controls full wallet access!".red());
     println!();
 
     // Save to output file if specified (with security warning)
