@@ -164,8 +164,6 @@ pub struct SimpleConfig {
     pub steward_url: String,
     /// Auto-generated API key
     pub api_key: String,
-    /// Path to wallet file
-    pub wallet_path: PathBuf,
     /// Path to steward log
     pub steward_log: PathBuf,
     /// Path to steward PID file
@@ -178,13 +176,6 @@ impl SimpleConfig {
         let home = dirs::home_dir()
             .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
         Ok(home.join(".kamuy").join("config.json"))
-    }
-
-    /// Wallet path: ~/.kamuy/wallet.json
-    pub fn wallet_path() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
-        Ok(home.join(".kamuy").join("wallet.json"))
     }
 
     /// Data directory: ~/.kamuy/
@@ -270,7 +261,6 @@ impl SimpleConfig {
             version: "2.0".to_string(),
             steward_url: "http://127.0.0.1:8080".to_string(),
             api_key,
-            wallet_path: data_dir.join("wallet.json"),
             steward_log: data_dir.join("steward.log"),
             steward_pid_file: data_dir.join("steward.pid"),
         })
@@ -284,10 +274,11 @@ impl SimpleConfig {
         hex::encode(bytes)
     }
 
-    /// Check if wallet exists
+    /// Check if wallet exists by checking for steward database
     pub fn wallet_exists() -> Result<bool> {
-        let path = Self::wallet_path()?;
-        Ok(path.exists())
+        let data_dir = Self::data_dir()?;
+        let db_path = data_dir.join("steward.db");
+        Ok(db_path.exists())
     }
 
     /// Migrate from old ~/.config/kamuy/ config if it exists
@@ -316,7 +307,6 @@ impl SimpleConfig {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| Self::generate_api_key()),
-            wallet_path: Self::wallet_path()?,
             steward_log: Self::data_dir()?.join("steward.log"),
             steward_pid_file: Self::data_dir()?.join("steward.pid"),
         };

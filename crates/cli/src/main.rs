@@ -235,7 +235,7 @@ enum ConfigAction {
 
     /// Get a configuration value
     Get {
-        /// Configuration key (api_key, steward_url, wallet_path)
+        /// Configuration key (api_key, steward_url, steward_log, steward_pid_file)
         key: String,
     },
 

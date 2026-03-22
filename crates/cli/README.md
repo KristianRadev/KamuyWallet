@@ -338,8 +338,7 @@ The CLI stores configuration in `~/.kamuy/config.json`:
 {
   "version": "2.0",
   "steward_url": "http://127.0.0.1:8080",
-  "api_key": "auto-generated-key",
-  "wallet_path": "~/.kamuy/wallet.json"
+  "api_key": "auto-generated-key"
 }
 ```
 
@@ -366,10 +365,9 @@ kamuy config set steward_url http://localhost:8080
 ## File Locations
 
 - **Config**: `~/.kamuy/config.json`
-- **Wallet**: `~/.kamuy/wallet.json`
 - **Steward PID**: `~/.kamuy/steward.pid`
 - **Steward Log**: `~/.kamuy/steward.log`
-- **Database**: `~/.kamuy/steward.db`
+- **Database**: `~/.kamuy/steward.db` (encrypted wallet data)
 
 ## Security
 
@@ -377,8 +375,9 @@ kamuy config set steward_url http://localhost:8080
 - Key files have restrictive permissions (0o600)
 - Passwords are never displayed or logged
 - All sensitive operations require password confirmation
-- User Key should be backed up securely (for recovery)
-- Agent Key is given to external agent software
+- **User Key is shown ONCE during init - must be saved securely for recovery**
+- **No plain-text key storage - user_key is NEVER written to disk**
+- Agent Key can be shared with AI agents for spending operations
 
 ## Typical Workflow
 
@@ -386,7 +385,11 @@ kamuy config set steward_url http://localhost:8080
 
 ```bash
 # One command does it all
-kamuy init --email your@email.com
+kamuy init
+
+# You'll be prompted for:
+# 1. Password (for encrypting keys)
+# 2. Email (optional, for backup notifications)
 
 # Get API key for your agent
 kamuy config get api_key

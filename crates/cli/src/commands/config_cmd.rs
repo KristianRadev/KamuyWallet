@@ -88,12 +88,11 @@ pub async fn get(ctx: Arc<CliContext>, key: String) -> Result<()> {
         match key.as_str() {
             "api_key" => println!("{}", simple.api_key),
             "steward_url" | "url" => println!("{}", simple.steward_url),
-            "wallet_path" => println!("{}", simple.wallet_path.display()),
             "steward_log" => println!("{}", simple.steward_log.display()),
             "steward_pid_file" => println!("{}", simple.steward_pid_file.display()),
             _ => {
                 print_error(&format!("Unknown config key: {}", key));
-                print_info("Available keys: api_key, steward_url, wallet_path, steward_log, steward_pid_file");
+                print_info("Available keys: api_key, steward_url, steward_log, steward_pid_file");
                 return Err(anyhow::anyhow!("Unknown config key"));
             }
         }

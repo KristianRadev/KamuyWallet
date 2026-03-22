@@ -22,7 +22,7 @@ pub async fn execute(
 
     // Step 1: Check if wallet already exists (using new SimpleConfig check)
     if crate::config::SimpleConfig::wallet_exists()? && !reset {
-        print_warning("A wallet already exists at ~/.kamuy/wallet.json");
+        print_warning("A wallet already exists at ~/.kamuy/");
         println!();
         println!("  To check your wallet: kamuy status");
         println!("  To create a new wallet: kamuy init --reset");
@@ -129,29 +129,8 @@ pub async fn execute(
     ).await {
         Ok(_) => {
             spinner.finish_with_message("Wallet created and unlocked!".green().to_string());
-
-            // Also save wallet.json locally for user reference
-            let wallet_path = crate::config::SimpleConfig::wallet_path()?;
-            let wallet_data = serde_json::json!({
-                "version": "2.0",
-                "address": wallet_address,
-                "chain": chain,
-                "chain_id": chain_id,
-                "agent_key": agent_key,
-                "user_key": user_key,
-                "email": email,
-                "created_at": chrono::Utc::now().to_rfc3339(),
-            });
-            let wallet_json = serde_json::to_string_pretty(&wallet_data)?;
-            std::fs::write(&wallet_path, wallet_json)?;
-
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = std::fs::metadata(&wallet_path)?.permissions();
-                perms.set_mode(0o600);
-                std::fs::set_permissions(&wallet_path, perms)?;
-            }
+            // Keys are stored encrypted in Steward's SQLite database
+            // No plain-text wallet file is created - user_key is shown ONCE below
         }
         Err(e) => {
             spinner.finish_with_message("Wallet creation failed".red().to_string());
@@ -176,16 +155,34 @@ pub async fn execute(
     println!("  Agent Key: {}", agent_key.cyan());
     println!();
 
-    // Security warnings
-    println!("{}", "SECURITY WARNINGS:".red().bold());
-    println!("  - These keys are shown only once!");
-    println!("  - Store them in a password manager or secure location");
-    println!("  - Never share your User Key with anyone");
-    println!("  - The Agent Key can be given to AI agents for spending");
+    // CRITICAL: Display user key ONCE with strong warnings
+    println!("{}", "═══════════════════════════════════════════════════════════".red().bold());
+    println!("{}", "  ⚠️  USER KEY - SAVE THIS SECURELY - SHOWN ONLY ONCE  ⚠️".red().bold());
+    println!("{}", "═══════════════════════════════════════════════════════════".red().bold());
+    println!();
+    println!("  User Key: {}", user_key.yellow().bold());
+    println!();
+    println!("{}", "This is your recovery key. If you lose access to this device,".yellow());
+    println!("{}", "you can use this key to recover your wallet.".yellow());
+    println!();
+    println!("{}", "SECURITY REQUIREMENTS:".red().bold());
+    println!("  • Write this down or save in a password manager NOW");
+    println!("  • NEVER store this in a file on your computer");
+    println!("  • NEVER share this key with anyone");
+    println!("  • This key is NOT stored anywhere on disk");
+    println!("  • If you lose this key, you cannot recover your wallet");
+    println!();
+    println!("{}", "The Agent Key above can be given to AI agents for spending.".green());
+    println!("{}", "The User Key is for YOUR recovery only - keep it secret!".red());
     println!();
 
-    // Save to output file if specified
+    // Save to output file if specified (with security warning)
     if let Some(output_path) = output {
+        print_warning(&format!(
+            "Writing keys to {} - ensure this file is stored securely!",
+            output_path
+        ));
+        println!();
         let output_data = serde_json::json!({
             "wallet_address": wallet_address,
             "chain": chain,
@@ -193,10 +190,21 @@ pub async fn execute(
             "agent_key": agent_key,
             "user_key": user_key,
             "email": email,
+            "warning": "Keep this file secure! The user_key is your recovery key.",
         });
         let output_str = serde_json::to_string_pretty(&output_data)?;
         tokio::fs::write(&output_path, output_str).await?;
-        print_success(&format!("Keys saved to {}", output_path));
+
+        // Set restrictive permissions on output file
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&output_path)?.permissions();
+            perms.set_mode(0o600);
+            std::fs::set_permissions(&output_path, perms)?;
+        }
+
+        print_success(&format!("Keys saved to {} (permissions set to 600)", output_path));
     }
 
     print_info("Your wallet is ready. The Steward is running and unlocked.");
