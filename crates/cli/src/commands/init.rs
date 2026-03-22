@@ -110,16 +110,36 @@ pub async fn execute(
     println!();
     start_steward(&simple_config).await?;
 
-    // Step 9: Create wallet in Steward (this stores encrypted steward key and auto-unlocks)
+    // Step 9: Wait for steward to be ready, then create wallet
     println!();
-    let spinner = create_spinner("Creating wallet in Steward...");
+    let spinner = create_spinner("Waiting for Steward to be ready...");
 
     let steward_client = crate::context::StewardClient::new(
         &simple_config.steward_url,
         Some(simple_config.api_key.clone()),
     );
 
-    match steward_client.create_wallet(
+    // Wait for steward to be healthy (with retries)
+    let mut steward_ready = false;
+    for attempt in 1..=10 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        if steward_client.health().await.is_ok() {
+            steward_ready = true;
+            break;
+        }
+        spinner.set_message(format!("Waiting for Steward... (attempt {}/10)", attempt));
+    }
+
+    if !steward_ready {
+        spinner.finish_with_message("Steward not responding".red().to_string());
+        print_error("Steward failed to start in time");
+        print_info("Run 'kamuy start' manually and then 'kamuy unlock'");
+        return Ok(());
+    }
+
+    spinner.set_message("Creating wallet in Steward...".to_string());
+
+    let wallet_created = match steward_client.create_wallet(
         &wallet_address,
         chain_id,
         &agent_key,
@@ -129,19 +149,23 @@ pub async fn execute(
     ).await {
         Ok(_) => {
             spinner.finish_with_message("Wallet created and unlocked!".green().to_string());
-            // Keys are stored encrypted in Steward's SQLite database
-            // No plain-text wallet file is created - user_key is shown ONCE below
+            true
         }
         Err(e) => {
             spinner.finish_with_message("Wallet creation failed".red().to_string());
             print_error(&format!("Failed to create wallet in Steward: {}", e));
             print_info("Save your keys and run 'kamuy unlock' after steward is running");
+            false
         }
-    }
+    };
 
     // Step 10: Display wallet info
     println!();
-    print_success("Wallet created successfully!");
+    if wallet_created {
+        print_success("Wallet created successfully!");
+    } else {
+        print_warning("Wallet creation incomplete - keys shown below for manual recovery");
+    }
     println!();
     println!("{}", "Your wallet:".bold());
     println!("  Address: {}", wallet_address.cyan());
@@ -153,6 +177,18 @@ pub async fn execute(
     println!("  Steward URL: http://127.0.0.1:8080");
     println!("  API Key: {}", simple_config.api_key.dimmed());
     println!("  Agent Key: {}", agent_key.cyan());
+    println!();
+
+    // Display default spending limits
+    println!("{}", "Default Spending Limits:".bold());
+    println!("  Max per transaction: {} USDC", "100".cyan());
+    println!("  Max per day: {} USDC", "1,000".cyan());
+    println!("  Max per week: {} USDC", "5,000".cyan());
+    println!("  Auto-add threshold: {} USDC", "50".cyan());
+    println!();
+    println!("{}", "💡 Ask your agent to change these limits anytime:".yellow());
+    println!("   \"Set my daily spending limit to 500 USDC\"");
+    println!("   \"Whitelist address 0x... for payments\"");
     println!();
 
     // CRITICAL: Display user key ONCE with strong warnings

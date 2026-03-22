@@ -349,8 +349,21 @@ impl StewardClient {
             .context("Failed to connect to Steward service")?;
 
         if !resp.status().is_success() {
-            let err: StewardError = resp.json().await?;
-            return Err(anyhow::anyhow!("Wallet creation failed: {}", err.error));
+            // Try to parse error message from response body
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+
+            // Try to extract error from JSON response
+            let error_msg = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+                json.get("error")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("HTTP {} - {}", status, body_text))
+            } else {
+                format!("HTTP {} - {}", status, body_text)
+            };
+
+            return Err(anyhow::anyhow!("Wallet creation failed: {}", error_msg));
         }
 
         Ok(())
