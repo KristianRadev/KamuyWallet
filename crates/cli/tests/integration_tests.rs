@@ -24,7 +24,7 @@ fn test_version() {
     cmd.arg("--version");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("0.2.0"));
+        .stdout(predicate::str::contains("0.2.5"));
 }
 
 /// Test config show without config file
