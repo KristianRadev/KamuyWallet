@@ -17,6 +17,18 @@ pub async fn execute(
     output: Option<String>,
     reset: bool,
 ) -> Result<()> {
+    // SECURITY WARNING at the start - before any sensitive operations
+    println!("{}", "═══════════════════════════════════════════════════════════".yellow().bold());
+    println!("{}", "  ⚠️  IMPORTANT: This command MUST be run by a HUMAN".yellow().bold());
+    println!("{}", "═══════════════════════════════════════════════════════════".yellow().bold());
+    println!();
+    println!("Never let an AI agent run this command.");
+    println!("AI agents should only receive configuration exported via:");
+    println!("  kamuy export-agent-config");
+    println!();
+    println!("{}", "───────────────────────────────────────────────────────────".dimmed());
+    println!();
+
     println!("{}", "Kamuy Wallet v2.0".bold().cyan());
     println!();
 
@@ -239,6 +251,14 @@ pub async fn execute(
     println!();
     println!("{}", "───────────────────────────────────────────────────────────".dimmed());
     println!();
+    println!("{}", "🤖 For AI Agent Setup:".bold());
+    println!("   To give your AI agent access to this wallet, run:");
+    println!("   {}", "kamuy export-agent-config".cyan());
+    println!();
+    println!("   This will give your agent limited spending access");
+    println!("   WITHOUT exposing your password or recovery key.");
+    println!();
+
     println!("{}", "Steward Configuration:".bold());
     println!("  Steward URL: http://127.0.0.1:8080");
     println!("  API Key: {}", simple_config.api_key.dimmed());
