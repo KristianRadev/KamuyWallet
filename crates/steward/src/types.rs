@@ -660,6 +660,20 @@ pub struct ComponentHealth {
     pub latency_ms: u64,
 }
 
+/// Request body for recovery key retrieval
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryKeyRequest {
+    /// User password for authentication
+    pub password: String,
+}
+
+/// Response containing the decrypted recovery key
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryKeyResponse {
+    /// The decrypted user key (hex-encoded)
+    pub user_key: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6,6 +6,7 @@
 use super::{ApiState, PaginationQuery, error, error_response, success, validate_api_key, extract_api_key};
 use crate::types::{
     ComponentHealth, PaginatedResponse, PolicyChangeRecord, PolicyChangeRequest, PolicyChangeRequestId,
+    RecoveryKeyRequest,
     TransactionId, TransactionRequest,
 };
 use axum::{
@@ -1162,6 +1163,89 @@ pub async fn approve_transaction_with_password(
         }
         Err(e) => error_response(e, request_id).into_response(),
     }
+}
+
+/// Get recovery key with password authentication
+///
+/// SECURITY: This endpoint returns the User Key (recovery key) after verifying
+/// the user's password. The key is encrypted at rest and only decrypted in memory
+/// after successful authentication.
+///
+/// Failed authentication attempts are logged for security monitoring.
+pub async fn get_recovery_key(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<RecoveryKeyRequest>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key (recovery key access requires authentication)
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            warn!(request_id = %request_id, "Invalid API key for recovery key request");
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        warn!(request_id = %request_id, "Missing API key for recovery key request");
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Get encrypted user key from storage
+    let (encrypted_key_bytes, _stored_password_hash) = match state.storage.load_user_key().await {
+        Ok(Some(data)) => data,
+        Ok(None) => {
+            info!(request_id = %request_id, "Recovery key not found - no user key stored");
+            return error(StatusCode::NOT_FOUND, "Recovery key not found", request_id).into_response();
+        }
+        Err(e) => {
+            warn!(request_id = %request_id, error = %e, "Failed to load recovery key from storage");
+            return error_response(e, request_id).into_response();
+        }
+    };
+
+    // Verify password against stored hash
+    // Use constant-time comparison for the password hash verification
+    let password_valid = state.storage.verify_user_password(&request.password).await.unwrap_or(false);
+
+    if !password_valid {
+        // SECURITY: Log failed authentication attempt (but don't reveal details)
+        warn!(
+            request_id = %request_id,
+            "Failed recovery key authentication attempt - invalid password"
+        );
+        return error(StatusCode::UNAUTHORIZED, "Invalid password", request_id).into_response();
+    }
+
+    // Parse encrypted key from stored bytes
+    let encrypted_key = match kamuy_mpc_core::EncryptedKeyShare::from_bytes(&encrypted_key_bytes) {
+        Ok(key) => key,
+        Err(e) => {
+            warn!(request_id = %request_id, error = %e, "Failed to parse encrypted key");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to decrypt recovery key", request_id).into_response();
+        }
+    };
+
+    // Decrypt user key with password
+    let decrypted_key_share = match kamuy_mpc_core::decrypt_key_share(&encrypted_key, &request.password) {
+        Ok(key) => key,
+        Err(e) => {
+            warn!(request_id = %request_id, error = %e, "Failed to decrypt recovery key - password may be incorrect");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "Decryption failed", request_id).into_response();
+        }
+    };
+
+    // Extract the secret share as the user key (hex-encoded)
+    let user_key_hex = hex::encode(decrypted_key_share.secret_share.to_bytes());
+
+    info!(
+        request_id = %request_id,
+        "Recovery key retrieved successfully"
+    );
+
+    success(
+        serde_json::json!({ "user_key": user_key_hex }),
+        request_id,
+    ).into_response()
 }
 
 #[cfg(test)]
