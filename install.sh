@@ -57,8 +57,26 @@ download_file() {
     fi
 }
 
+# Fetch latest release version from GitHub API
+echo "🔍 Fetching latest release..."
+if [ -n "$GITHUB_TOKEN" ]; then
+    LATEST_VERSION=$(curl -sSL -H "Authorization: token $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$REPO/releases/latest" | \
+        grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+else
+    LATEST_VERSION=$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" | \
+        grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+fi
+
+if [ -z "$LATEST_VERSION" ]; then
+    echo "❌ Failed to fetch latest release version"
+    exit 1
+fi
+
+echo "   Latest version: $LATEST_VERSION"
+
 # Download binaries from release
-RELEASE_URL="https://github.com/$REPO/releases/download/v0.2.0"
+RELEASE_URL="https://github.com/$REPO/releases/download/$LATEST_VERSION"
 
 echo "📥 Downloading kamuy CLI..."
 download_file "$RELEASE_URL/kamuy" "$INSTALL_DIR/kamuy"
