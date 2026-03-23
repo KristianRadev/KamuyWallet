@@ -79,6 +79,8 @@ fn build_router(state: ApiState) -> Router {
         .route("/api/v1/balances", get(routes::get_balances))
         // Recovery key route (requires password authentication)
         .route("/api/v1/recovery-key", post(routes::get_recovery_key))
+        // Agent key route (requires password authentication)
+        .route("/api/v1/agent-key", post(routes::get_agent_key))
         // Unlock routes
         .route("/api/v1/unlock", post(routes::unlock_steward))
         .route("/api/v1/unlock", get(routes::check_unlocked))

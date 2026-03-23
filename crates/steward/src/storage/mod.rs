@@ -179,6 +179,20 @@ impl StewardStorage {
         .await
         .map_err(|e| StewardError::Database(format!("Failed to create spending_tracker table: {}", e)))?;
 
+        // Create agent_key table (encrypted with user's password)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS agent_key (
+                id INTEGER PRIMARY KEY,
+                encrypted_key_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            "#
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StewardError::Database(format!("Failed to create agent_key table: {}", e)))?;
+
         info!("Database schema initialized");
         Ok(())
     }
@@ -447,10 +461,69 @@ impl StewardStorage {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| StewardError::Database(format!("Failed to check user key: {}", e)))?;
-        
+
         Ok(count > 0)
     }
-    
+
+    /// Save Agent key (encrypted with user's password)
+    pub async fn save_agent_key(&self, encrypted: &EncryptedKeyShare) -> Result<()> {
+        let json = encrypted.to_bytes()
+            .map_err(|e| StewardError::Serialization(e.to_string()))?;
+
+        // Delete existing key
+        sqlx::query("DELETE FROM agent_key")
+            .execute(&self.pool)
+            .await
+            .ok();
+
+        sqlx::query(
+            r#"
+            INSERT INTO agent_key (encrypted_key_json, created_at)
+            VALUES (?, ?)
+            "#
+        )
+        .bind(String::from_utf8_lossy(&json))
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StewardError::Database(format!("Failed to save agent key: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Load Agent key (caller must provide password to decrypt)
+    pub async fn load_agent_key(&self) -> Result<Option<Vec<u8>>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT encrypted_key_json FROM agent_key LIMIT 1
+            "#
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StewardError::Database(format!("Failed to load agent key: {}", e)))?;
+
+        match row {
+            Some((json,)) => {
+                Ok(Some(json.into_bytes()))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Check if agent key exists
+    pub async fn has_agent_key(&self) -> Result<bool> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM agent_key
+            "#
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| StewardError::Database(format!("Failed to check agent key: {}", e)))?;
+
+        Ok(count > 0)
+    }
+
     /// Verify user password against stored hash
     pub async fn verify_user_password(&self, password: &str) -> Result<bool> {
         let row: Option<(String,)> = sqlx::query_as(

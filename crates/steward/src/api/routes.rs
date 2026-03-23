@@ -5,7 +5,7 @@
 
 use super::{ApiState, PaginationQuery, error, error_response, success, validate_api_key, extract_api_key};
 use crate::types::{
-    ComponentHealth, PaginatedResponse, PolicyChangeRecord, PolicyChangeRequest, PolicyChangeRequestId,
+    AgentKeyRequest, ComponentHealth, PaginatedResponse, PolicyChangeRecord, PolicyChangeRequest, PolicyChangeRequestId,
     RecoveryKeyRequest,
     TransactionId, TransactionRequest,
 };
@@ -1004,6 +1004,43 @@ pub async fn create_wallet_with_password(
         return error_response(e, request_id).into_response();
     }
 
+    // Create and save agent key share (encrypted with password)
+    // This allows the wallet owner to export agent config later
+    let agent_key_share = {
+        use kamuy_mpc_core::types::{AgentKeyShare, PartyRole};
+        use kamuy_mpc_core::utils::math::{bytes_to_scalar, generator, point_mul};
+
+        // Parse the agent_key from hex
+        let agent_key_bytes = hex::decode(body.agent_key.trim_start_matches("0x"))
+            .unwrap_or_else(|_| body.agent_key.as_bytes().to_vec());
+        let mut bytes = [0u8; 32];
+        bytes[..agent_key_bytes.len().min(32)].copy_from_slice(&agent_key_bytes[..agent_key_bytes.len().min(32)]);
+
+        let secret_share = match bytes_to_scalar(&bytes) {
+            Ok(s) => s,
+            Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Invalid agent key: {}", e), request_id).into_response(),
+        };
+        let public_key = point_mul(&generator(), &secret_share);
+
+        AgentKeyShare::new(
+            0, // party_id for Agent
+            PartyRole::Agent,
+            secret_share,
+            public_key,
+            vec![public_key],
+            [0u8; 32],
+        )
+    };
+
+    let encrypted_agent = match kamuy_mpc_core::encrypt_key_share(&agent_key_share, &body.password) {
+        Ok(enc) => enc,
+        Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, &format!("Agent key encryption failed: {}", e), request_id).into_response(),
+    };
+
+    if let Err(e) = state.storage.save_agent_key(&encrypted_agent).await {
+        return error_response(e, request_id).into_response();
+    }
+
     // Load keys into signing coordinator for immediate signing capability
     if let Err(e) = state.signing_coordinator.load_keys_from_hex(
         &hex::encode(steward_key_bytes),
@@ -1244,6 +1281,92 @@ pub async fn get_recovery_key(
 
     success(
         serde_json::json!({ "user_key": user_key_hex }),
+        request_id,
+    ).into_response()
+}
+
+/// Get agent key with password authentication
+///
+/// SECURITY: This endpoint returns the Agent Key after verifying
+/// the user's password. The agent key is encrypted at rest and only decrypted
+/// in memory after successful authentication.
+///
+/// This allows wallet owners to export their agent configuration without
+/// exposing the more sensitive User Key (recovery key).
+///
+/// Failed authentication attempts are logged for security monitoring.
+pub async fn get_agent_key(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(request): Json<AgentKeyRequest>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key (agent key access requires authentication)
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            warn!(request_id = %request_id, "Invalid API key for agent key request");
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        warn!(request_id = %request_id, "Missing API key for agent key request");
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Verify password against stored hash
+    // Use constant-time comparison for the password hash verification
+    let password_valid = state.storage.verify_user_password(&request.password).await.unwrap_or(false);
+
+    if !password_valid {
+        // SECURITY: Log failed authentication attempt (but don't reveal details)
+        warn!(
+            request_id = %request_id,
+            "Failed agent key authentication attempt - invalid password"
+        );
+        return error(StatusCode::UNAUTHORIZED, "Invalid password", request_id).into_response();
+    }
+
+    // Get encrypted agent key from storage
+    let encrypted_key_bytes = match state.storage.load_agent_key().await {
+        Ok(Some(data)) => data,
+        Ok(None) => {
+            info!(request_id = %request_id, "Agent key not found - no agent key stored");
+            return error(StatusCode::NOT_FOUND, "Agent key not found", request_id).into_response();
+        }
+        Err(e) => {
+            warn!(request_id = %request_id, error = %e, "Failed to load agent key from storage");
+            return error_response(e, request_id).into_response();
+        }
+    };
+
+    // Parse encrypted key from stored bytes
+    let encrypted_key = match kamuy_mpc_core::EncryptedKeyShare::from_bytes(&encrypted_key_bytes) {
+        Ok(key) => key,
+        Err(e) => {
+            warn!(request_id = %request_id, error = %e, "Failed to parse encrypted agent key");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to decrypt agent key", request_id).into_response();
+        }
+    };
+
+    // Decrypt agent key with password
+    let decrypted_key_share = match kamuy_mpc_core::decrypt_key_share(&encrypted_key, &request.password) {
+        Ok(key) => key,
+        Err(e) => {
+            warn!(request_id = %request_id, error = %e, "Failed to decrypt agent key - password may be incorrect");
+            return error(StatusCode::INTERNAL_SERVER_ERROR, "Decryption failed", request_id).into_response();
+        }
+    };
+
+    // Extract the secret share as the agent key (hex-encoded)
+    let agent_key_hex = hex::encode(decrypted_key_share.secret_share.to_bytes());
+
+    info!(
+        request_id = %request_id,
+        "Agent key retrieved successfully"
+    );
+
+    success(
+        serde_json::json!({ "agent_key": agent_key_hex }),
         request_id,
     ).into_response()
 }

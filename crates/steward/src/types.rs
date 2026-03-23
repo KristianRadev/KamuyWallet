@@ -674,6 +674,13 @@ pub struct RecoveryKeyResponse {
     pub user_key: String,
 }
 
+/// Request body for agent key retrieval
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentKeyRequest {
+    /// User password for authentication
+    pub password: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
