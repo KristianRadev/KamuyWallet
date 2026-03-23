@@ -13,6 +13,7 @@ pub mod pending;
 pub mod policy;
 pub mod recover;
 pub mod rotate;
+pub mod show_recovery_key;
 pub mod sign;
 pub mod start;
 pub mod status;

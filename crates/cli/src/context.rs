@@ -393,6 +393,25 @@ impl StewardClient {
         let result: serde_json::Value = resp.json().await?;
         Ok(result["data"]["key_loaded"].as_bool().unwrap_or(false))
     }
+
+    /// Get recovery key with password authentication
+    /// SECURITY: Password is required - user key is never stored on disk
+    pub async fn get_recovery_key(&self, password: &str) -> Result<String> {
+        let resp = self.build_request(reqwest::Method::POST, "/api/v1/recovery-key")
+            .json(&serde_json::json!({ "password": password }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let err: StewardError = resp.json().await?;
+            return Err(anyhow::anyhow!("Failed to get recovery key: {}", err.error));
+        }
+
+        let response: ApiResponse<RecoveryKeyResponse> = resp.json().await?;
+        response.data
+            .map(|d| d.user_key)
+            .ok_or_else(|| anyhow::anyhow!("No data in response"))
+    }
 }
 
 /// Steward health response
@@ -430,6 +449,12 @@ pub struct CreateWalletResponse {
 pub struct EmailBackupResult {
     pub sent: bool,
     pub message: String,
+}
+
+/// Response from recovery key retrieval
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RecoveryKeyResponse {
+    pub user_key: String,
 }
 
 /// Validate UUID format

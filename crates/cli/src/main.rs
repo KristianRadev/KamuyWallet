@@ -164,6 +164,9 @@ enum Commands {
         key_file: String,
     },
 
+    /// Show recovery key (requires password)
+    ShowRecoveryKey,
+
     /// List pending transactions
     Pending,
 
@@ -393,6 +396,11 @@ async fn main() -> Result<()> {
             progress_tracker.set_current_command("recover")?;
             recover::execute(ctx, key_file).await?;
             progress_tracker.command_completed("recover")?;
+        }
+        Commands::ShowRecoveryKey => {
+            progress_tracker.set_current_command("show_recovery_key")?;
+            show_recovery_key::execute(ctx).await?;
+            progress_tracker.command_completed("show_recovery_key")?;
         }
         Commands::Pending => {
             progress_tracker.set_current_command("pending")?;
