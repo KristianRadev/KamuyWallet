@@ -412,6 +412,25 @@ impl StewardClient {
             .map(|d| d.user_key)
             .ok_or_else(|| anyhow::anyhow!("No data in response"))
     }
+
+    /// Get agent key with password authentication
+    /// SECURITY: Password is required - ensures only wallet owner can retrieve agent config
+    pub async fn get_agent_key(&self, password: &str) -> Result<String> {
+        let resp = self.build_request(reqwest::Method::POST, "/api/v1/agent-key")
+            .json(&serde_json::json!({ "password": password }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let err: StewardError = resp.json().await?;
+            return Err(anyhow::anyhow!("Failed to get agent key: {}", err.error));
+        }
+
+        let response: ApiResponse<AgentKeyResponse> = resp.json().await?;
+        response.data
+            .map(|d| d.agent_key)
+            .ok_or_else(|| anyhow::anyhow!("No data in response"))
+    }
 }
 
 /// Steward health response
@@ -455,6 +474,12 @@ pub struct EmailBackupResult {
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct RecoveryKeyResponse {
     pub user_key: String,
+}
+
+/// Response from agent key retrieval
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AgentKeyResponse {
+    pub agent_key: String,
 }
 
 /// Validate UUID format

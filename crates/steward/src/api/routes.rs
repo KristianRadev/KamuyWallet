@@ -1287,13 +1287,11 @@ pub async fn get_recovery_key(
 
 /// Get agent key with password authentication
 ///
-/// SECURITY: This endpoint returns the Agent Key after verifying
-/// the user's password. The agent key is encrypted at rest and only decrypted
-/// in memory after successful authentication.
+/// SECURITY: This endpoint returns the Agent Key after verifying the user's password.
+/// The Agent Key is stored in the wallet's public_key field and is designed to be
+/// shared with trusted AI agents (unlike the User Key which is for recovery).
 ///
-/// This allows wallet owners to export their agent configuration without
-/// exposing the more sensitive User Key (recovery key).
-///
+/// Password verification ensures only the wallet owner can export the agent config.
 /// Failed authentication attempts are logged for security monitoring.
 pub async fn get_agent_key(
     State(state): State<ApiState>,
@@ -1314,7 +1312,7 @@ pub async fn get_agent_key(
     }
 
     // Verify password against stored hash
-    // Use constant-time comparison for the password hash verification
+    // This ensures only the wallet owner can export the agent config
     let password_valid = state.storage.verify_user_password(&request.password).await.unwrap_or(false);
 
     if !password_valid {
@@ -1326,39 +1324,22 @@ pub async fn get_agent_key(
         return error(StatusCode::UNAUTHORIZED, "Invalid password", request_id).into_response();
     }
 
-    // Get encrypted agent key from storage
-    let encrypted_key_bytes = match state.storage.load_agent_key().await {
-        Ok(Some(data)) => data,
+    // Get wallet info to retrieve the agent key
+    // The agent key is stored in the public_key field of the wallet
+    let wallet = match state.storage.get_wallet().await {
+        Ok(Some(w)) => w,
         Ok(None) => {
-            info!(request_id = %request_id, "Agent key not found - no agent key stored");
-            return error(StatusCode::NOT_FOUND, "Agent key not found", request_id).into_response();
+            info!(request_id = %request_id, "No wallet found");
+            return error(StatusCode::NOT_FOUND, "No wallet found", request_id).into_response();
         }
         Err(e) => {
-            warn!(request_id = %request_id, error = %e, "Failed to load agent key from storage");
+            warn!(request_id = %request_id, error = %e, "Failed to load wallet");
             return error_response(e, request_id).into_response();
         }
     };
 
-    // Parse encrypted key from stored bytes
-    let encrypted_key = match kamuy_mpc_core::EncryptedKeyShare::from_bytes(&encrypted_key_bytes) {
-        Ok(key) => key,
-        Err(e) => {
-            warn!(request_id = %request_id, error = %e, "Failed to parse encrypted agent key");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to decrypt agent key", request_id).into_response();
-        }
-    };
-
-    // Decrypt agent key with password
-    let decrypted_key_share = match kamuy_mpc_core::decrypt_key_share(&encrypted_key, &request.password) {
-        Ok(key) => key,
-        Err(e) => {
-            warn!(request_id = %request_id, error = %e, "Failed to decrypt agent key - password may be incorrect");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "Decryption failed", request_id).into_response();
-        }
-    };
-
-    // Extract the secret share as the agent key (hex-encoded)
-    let agent_key_hex = hex::encode(decrypted_key_share.secret_share.to_bytes());
+    // The agent key is stored in the public_key field
+    let agent_key = wallet.public_key;
 
     info!(
         request_id = %request_id,
@@ -1366,7 +1347,7 @@ pub async fn get_agent_key(
     );
 
     success(
-        serde_json::json!({ "agent_key": agent_key_hex }),
+        serde_json::json!({ "agent_key": agent_key }),
         request_id,
     ).into_response()
 }

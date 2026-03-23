@@ -6,6 +6,7 @@ pub mod approve;
 pub mod completions;
 pub mod config_cmd;
 pub mod create_wallet;
+pub mod export_agent_config;
 pub mod history;
 pub mod init;
 pub mod lock;

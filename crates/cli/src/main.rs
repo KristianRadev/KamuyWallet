@@ -167,6 +167,9 @@ enum Commands {
     /// Show recovery key (requires password)
     ShowRecoveryKey,
 
+    /// Export agent configuration for AI agent setup
+    ExportAgentConfig,
+
     /// List pending transactions
     Pending,
 
@@ -401,6 +404,11 @@ async fn main() -> Result<()> {
             progress_tracker.set_current_command("show_recovery_key")?;
             show_recovery_key::execute(ctx).await?;
             progress_tracker.command_completed("show_recovery_key")?;
+        }
+        Commands::ExportAgentConfig => {
+            progress_tracker.set_current_command("export_agent_config")?;
+            export_agent_config::execute(ctx).await?;
+            progress_tracker.command_completed("export_agent_config")?;
         }
         Commands::Pending => {
             progress_tracker.set_current_command("pending")?;
