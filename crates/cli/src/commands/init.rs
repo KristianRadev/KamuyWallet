@@ -82,6 +82,10 @@ pub async fn execute(
     println!();
     let email = prompt_email_optional()?;
 
+    // Step 5b: Prompt for spending limits
+    println!();
+    let spending_limits = prompt_spending_limits()?;
+
     // Step 6: Generate MPC keys
     println!();
     let spinner = create_spinner("Generating MPC keys (3 key shares)...");
@@ -166,6 +170,26 @@ pub async fn execute(
         }
     };
 
+    // Update spending limits policy if wallet was created
+    if wallet_created {
+        let mut policy = match steward_client.get_policy().await {
+            Ok(p) => p,
+            Err(e) => {
+                print_warning(&format!("Could not fetch policy to set limits: {}", e));
+                kamuy_steward::policy::PolicyRules::default()
+            }
+        };
+
+        policy.max_per_tx = spending_limits.max_per_tx;
+        policy.max_daily = spending_limits.max_daily;
+        policy.max_weekly = spending_limits.max_weekly;
+        policy.auto_add_threshold = spending_limits.auto_add_threshold;
+
+        if let Err(e) = steward_client.update_policy(&policy).await {
+            print_warning(&format!("Could not set spending limits: {}", e));
+        }
+    }
+
     // Step 10: Display wallet info
     println!();
     if wallet_created {
@@ -220,12 +244,12 @@ pub async fn execute(
     println!("  API Key: {}", simple_config.api_key.dimmed());
     println!();
 
-    // Display default spending limits
-    println!("{}", "Default Spending Limits:".bold());
-    println!("  Max per transaction: {} USDC", "100".cyan());
-    println!("  Max per day: {} USDC", "1,000".cyan());
-    println!("  Max per week: {} USDC", "5,000".cyan());
-    println!("  Auto-add threshold: {} USDC", "50".cyan());
+    // Display spending limits
+    println!("{}", "Your Spending Limits:".bold());
+    println!("  Max per transaction: {} USDC", SpendingLimits::format_usdc(spending_limits.max_per_tx).cyan());
+    println!("  Max per day: {} USDC", SpendingLimits::format_usdc(spending_limits.max_daily).cyan());
+    println!("  Max per week: {} USDC", SpendingLimits::format_usdc(spending_limits.max_weekly).cyan());
+    println!("  Auto-add threshold: {} USDC", SpendingLimits::format_usdc(spending_limits.auto_add_threshold).cyan());
     println!();
     println!("{}", "💡 Ask your agent to change these limits anytime:".yellow());
     println!("   \"Set my daily spending limit to 500 USDC\"");
@@ -461,6 +485,56 @@ fn validate_password_strength(password: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Spending limits configuration
+struct SpendingLimits {
+    max_per_tx: u64,      // USDC micros
+    max_daily: u64,       // USDC micros
+    max_weekly: u64,      // USDC micros
+    auto_add_threshold: u64, // USDC micros
+}
+
+impl Default for SpendingLimits {
+    fn default() -> Self {
+        Self {
+            max_per_tx: 100_000_000,      // 100 USDC
+            max_daily: 500_000_000,       // 500 USDC
+            max_weekly: 2_000_000_000,    // 2000 USDC
+            auto_add_threshold: 50_000_000, // 50 USDC
+        }
+    }
+}
+
+impl SpendingLimits {
+    /// Format USDC micros to human-readable string
+    fn format_usdc(micros: u64) -> String {
+        let whole = micros / 1_000_000;
+        let decimals = (micros % 1_000_000) / 10_000;
+        if decimals > 0 {
+            format!("{}.{}", whole, decimals)
+        } else {
+            format!("{}", whole)
+        }
+    }
+
+    /// Parse USDC string to micros
+    fn parse_usdc(s: &str) -> Option<u64> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        let parts: Vec<&str> = s.split('.').collect();
+        let whole: u64 = parts.get(0)?.parse().ok()?;
+        let micros = whole * 1_000_000;
+        if let Some(decimals) = parts.get(1) {
+            let dec_str = format!("{:0<6}", decimals.chars().take(6).collect::<String>());
+            let dec_val: u64 = dec_str.parse().ok()?;
+            Some(micros + dec_val)
+        } else {
+            Some(micros)
+        }
+    }
+}
+
 /// Prompt for optional email address
 fn prompt_email_optional() -> Result<Option<String>> {
     use dialoguer::Input;
@@ -494,6 +568,107 @@ fn prompt_email_optional() -> Result<Option<String>> {
     print_info("Email will be used to send you an encrypted backup of your recovery key.");
 
     Ok(Some(email))
+}
+
+/// Prompt for spending limits with editable defaults
+fn prompt_spending_limits() -> Result<SpendingLimits> {
+    use dialoguer::Input;
+
+    let defaults = SpendingLimits::default();
+
+    println!("{}", "Spending Limits".bold());
+    println!("  Set limits for your AI agent. Press Enter to accept defaults.");
+    println!("  (Values in USDC)");
+    println!();
+
+    // Max per transaction
+    let max_per_tx: String = Input::new()
+        .with_prompt(format!("Max per transaction [{}]", SpendingLimits::format_usdc(defaults.max_per_tx)))
+        .allow_empty(true)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+
+    let max_per_tx = if max_per_tx.trim().is_empty() {
+        defaults.max_per_tx
+    } else {
+        SpendingLimits::parse_usdc(&max_per_tx)
+            .ok_or_else(|| anyhow::anyhow!("Invalid amount format"))?
+    };
+
+    // Max daily
+    let max_daily: String = Input::new()
+        .with_prompt(format!("Max per day [{}]", SpendingLimits::format_usdc(defaults.max_daily)))
+        .allow_empty(true)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+
+    let max_daily = if max_daily.trim().is_empty() {
+        defaults.max_daily
+    } else {
+        SpendingLimits::parse_usdc(&max_daily)
+            .ok_or_else(|| anyhow::anyhow!("Invalid amount format"))?
+    };
+
+    // Validate max_daily >= max_per_tx
+    if max_daily < max_per_tx {
+        print_warning("Max daily must be at least max per transaction. Using max per transaction value.");
+        return Ok(SpendingLimits {
+            max_per_tx,
+            max_daily: max_per_tx,
+            max_weekly: max_per_tx,
+            auto_add_threshold: defaults.auto_add_threshold.min(max_per_tx),
+        });
+    }
+
+    // Max weekly
+    let max_weekly: String = Input::new()
+        .with_prompt(format!("Max per week [{}]", SpendingLimits::format_usdc(defaults.max_weekly)))
+        .allow_empty(true)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+
+    let max_weekly = if max_weekly.trim().is_empty() {
+        defaults.max_weekly
+    } else {
+        SpendingLimits::parse_usdc(&max_weekly)
+            .ok_or_else(|| anyhow::anyhow!("Invalid amount format"))?
+    };
+
+    // Validate max_weekly >= max_daily
+    if max_weekly < max_daily {
+        print_warning("Max weekly must be at least max daily. Using max daily value.");
+        return Ok(SpendingLimits {
+            max_per_tx,
+            max_daily,
+            max_weekly: max_daily,
+            auto_add_threshold: defaults.auto_add_threshold.min(max_per_tx),
+        });
+    }
+
+    // Auto-add threshold
+    let auto_add_threshold: String = Input::new()
+        .with_prompt(format!("Auto-add threshold (new addresses under this auto-whitelist) [{}]",
+            SpendingLimits::format_usdc(defaults.auto_add_threshold)))
+        .allow_empty(true)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("Failed to read input: {}", e))?;
+
+    let auto_add_threshold = if auto_add_threshold.trim().is_empty() {
+        defaults.auto_add_threshold
+    } else {
+        SpendingLimits::parse_usdc(&auto_add_threshold)
+            .ok_or_else(|| anyhow::anyhow!("Invalid amount format"))?
+    };
+
+    // Validate auto_add_threshold <= max_per_tx
+    let auto_add_threshold = auto_add_threshold.min(max_per_tx);
+
+    Ok(SpendingLimits {
+        max_per_tx,
+        max_daily,
+        max_weekly,
+        auto_add_threshold,
+    })
 }
 
 #[cfg(test)]
