@@ -3745,7 +3745,7 @@ dependencies = [
 
 [[package]]
 name = "kamuy-cli"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -3870,7 +3870,7 @@ dependencies = [
 
 [[package]]
 name = "kamuy-steward"
-version = "0.2.0"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "argon2",
