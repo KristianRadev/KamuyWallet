@@ -41,11 +41,17 @@ pub struct StewardClient {
 }
 
 impl StewardClient {
-    /// Create new Steward client
+    /// Create new Steward client with timeout configuration
     pub fn new(base_url: &str, api_key: Option<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::new(),
+            client,
             api_key,
         }
     }
