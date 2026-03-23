@@ -256,48 +256,52 @@ pub async fn execute(
     println!("   \"Whitelist address 0x... for payments\"");
     println!();
 
-    // CRITICAL: Display user key ONCE with strong warnings
-    println!("{}", "═══════════════════════════════════════════════════════════".red().bold());
-    println!("{}", "  ⚠️  USER KEY - SAVE THIS SECURELY - SHOWN ONLY ONCE  ⚠️".red().bold());
-    println!("{}", "═══════════════════════════════════════════════════════════".red().bold());
+    // SECURITY: User Key is NEVER displayed in stdout to prevent AI agent capture.
+    // The User Key must be retrieved separately via password-authenticated command.
+    // This preserves the MPC security model where the agent never has access to the recovery key.
+    println!("{}", "═══════════════════════════════════════════════════════════".yellow().bold());
+    println!("{}", "  ⚠️  RECOVERY KEY NOT SHOWN HERE".yellow().bold());
+    println!("{}", "═══════════════════════════════════════════════════════════".yellow().bold());
     println!();
-    println!("  User Key: {}", user_key.yellow().bold());
+    println!("Your User Key (recovery key) is stored encrypted.");
     println!();
-    println!("{}", "This is your RECOVERY key. If you lose access to this device,".yellow());
-    println!("{}", "you can use this key to recover your wallet.".yellow());
+    println!("To view your recovery key:");
+    println!("  • If you provided an email: Check your inbox for the encrypted backup");
+    println!("  • Otherwise run: {}", "kamuy show-recovery-key".cyan());
     println!();
-    println!("{}", "SECURITY REQUIREMENTS:".red().bold());
-    println!("  • Write this down or save in a password manager NOW");
-    println!("  • NEVER store this in a file on your computer");
-    println!("  • NEVER share this key with anyone");
-    println!("  • This key is NOT stored anywhere on disk");
-    println!("  • If you lose this key, you cannot recover your wallet");
+    println!("You will need your wallet password to view it.");
     println!();
     println!("{}", "───────────────────────────────────────────────────────────".dimmed());
     println!();
     println!("{}", "KEY PURPOSES:".bold());
     println!("  {} {} - For AI agents to interact with your wallet", "Agent Key:".green(), "(above)".green());
-    println!("  {} {} - For YOU to recover your wallet", "User Key:".yellow(), "(this key)".yellow());
+    println!("  {} {} - For YOU to recover your wallet", "User Key:".yellow(), "(retrieve separately)".yellow());
     println!();
     println!("{}", "The Agent Key is for spending, the User Key is for recovery.".cyan());
-    println!("{}", "Keep your User Key secret - it controls full wallet access!".red());
+    println!("{}", "Your User Key is protected - it requires your password to access.".yellow());
     println!();
 
-    // Save to output file if specified (with security warning)
+    // SECURITY: Output file does NOT include user_key to prevent accidental exposure.
+    // The user_key is intentionally excluded - it must be retrieved via password-authenticated
+    // command (kamuy show-recovery-key) to maintain MPC security model.
     if let Some(output_path) = output {
         print_warning(&format!(
-            "Writing keys to {} - ensure this file is stored securely!",
+            "Writing agent configuration to {}",
             output_path
         ));
+        println!();
+        print_warning("NOTE: User Key (recovery key) is NOT included in this file.");
+        println!("      To retrieve your recovery key, run: kamuy show-recovery-key");
         println!();
         let output_data = serde_json::json!({
             "wallet_address": wallet_address,
             "chain": chain,
             "chain_id": chain_id,
             "agent_key": agent_key,
-            "user_key": user_key,
             "email": email,
-            "warning": "Keep this file secure! The user_key is your recovery key.",
+            "steward_url": "http://127.0.0.1:8080",
+            "api_key": simple_config.api_key,
+            "warning": "Agent configuration only. User Key (recovery key) requires password-protected retrieval via 'kamuy show-recovery-key'.",
         });
         let output_str = serde_json::to_string_pretty(&output_data)?;
         tokio::fs::write(&output_path, output_str).await?;
@@ -311,7 +315,7 @@ pub async fn execute(
             std::fs::set_permissions(&output_path, perms)?;
         }
 
-        print_success(&format!("Keys saved to {} (permissions set to 600)", output_path));
+        print_success(&format!("Agent configuration saved to {} (permissions set to 600)", output_path));
     }
 
     print_info("Your wallet is ready. The Steward is running and unlocked.");
