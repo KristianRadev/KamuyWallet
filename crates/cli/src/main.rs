@@ -171,7 +171,11 @@ enum Commands {
     ExportAgentConfig,
 
     /// List pending transactions
-    Pending,
+    Pending {
+        /// Output format
+        #[arg(short, long, value_enum, default_value = "table")]
+        format: PendingFormat,
+    },
 
     /// Approve pending items (transactions, policy changes, addresses)
     Approve {
@@ -247,6 +251,18 @@ enum ConfigAction {
 
     /// Initialize configuration file
     Init,
+}
+
+/// Output format for pending command
+#[derive(Clone, Debug, Default, clap::ValueEnum)]
+enum PendingFormat {
+    /// Table format (human readable)
+    #[default]
+    Table,
+    /// Telegram format (for agent to forward)
+    Telegram,
+    /// JSON format (machine readable)
+    Json,
 }
 
 /// Approval subcommands for v2.0
@@ -410,9 +426,9 @@ async fn main() -> Result<()> {
             export_agent_config::execute(ctx).await?;
             progress_tracker.command_completed("export_agent_config")?;
         }
-        Commands::Pending => {
+        Commands::Pending { format } => {
             progress_tracker.set_current_command("pending")?;
-            pending::execute(ctx).await?;
+            pending::execute(ctx, format).await?;
             progress_tracker.command_completed("pending")?;
         }
         Commands::Approve { action } => {
@@ -432,7 +448,7 @@ async fn main() -> Result<()> {
         }
         Commands::Reject { tx_id } => {
             progress_tracker.set_current_command("reject")?;
-            approve::execute(ctx, tx_id, false).await?;
+            reject::execute(ctx, tx_id).await?;
             progress_tracker.command_completed("reject")?;
         }
         Commands::History { limit } => {

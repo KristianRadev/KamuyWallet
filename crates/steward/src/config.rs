@@ -271,6 +271,8 @@ pub struct NotificationConfig {
     pub on_execution: bool,
     /// Notify on errors
     pub on_error: bool,
+    /// Timeout for approval requests in seconds (default: 300 = 5 minutes)
+    pub timeout_secs: u64,
 }
 
 impl NotificationConfig {
@@ -291,6 +293,10 @@ impl NotificationConfig {
             on_error: std::env::var("STEWARD_NOTIFY_ERROR")
                 .map(|s| s == "true")
                 .unwrap_or(true),
+            timeout_secs: std::env::var("STEWARD_APPROVAL_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(300), // 5 minutes default
         })
     }
 }

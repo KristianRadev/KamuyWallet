@@ -1352,6 +1352,226 @@ pub async fn get_agent_key(
     ).into_response()
 }
 
+/// Request body for approval request
+#[derive(serde::Deserialize)]
+pub struct ApprovalRequestInput {
+    /// Transaction ID that needs approval
+    pub tx_id: String,
+}
+
+/// Request body for approval response
+#[derive(serde::Deserialize)]
+pub struct ApprovalResponseInput {
+    /// Transaction ID being approved/rejected
+    pub tx_id: String,
+    /// User's decision: "approve" or "reject"
+    pub decision: String,
+    /// User identifier (e.g., Telegram user ID)
+    pub user_id: String,
+    /// Optional comment
+    pub comment: Option<String>,
+}
+
+/// Get pending approval requests
+/// Agent polls this endpoint to display pending approvals to user
+pub async fn get_pending_approvals(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Get pending approvals from the approval channel
+    let pending = state.approval_channel.get_pending_requests().await;
+
+    success(
+        serde_json::json!({
+            "approvals": pending,
+            "count": pending.len(),
+        }),
+        request_id,
+    ).into_response()
+}
+
+/// Get a specific approval request by transaction ID
+pub async fn get_approval_request(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Parse transaction ID
+    let tx_id = match parse_transaction_id(&id) {
+        Ok(id) => id,
+        Err(e) => return error(StatusCode::BAD_REQUEST, e, request_id).into_response(),
+    };
+
+    // Get the specific pending request
+    match state.approval_channel.get_pending_request(&tx_id).await {
+        Some(approval_request) => success(approval_request, request_id).into_response(),
+        None => error(StatusCode::NOT_FOUND, "Approval request not found or already resolved", request_id).into_response(),
+    }
+}
+
+/// Respond to an approval request (approve or reject)
+/// Agent calls this when user responds in Telegram
+pub async fn respond_to_approval(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<ApprovalResponseInput>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Parse transaction ID
+    let tx_id = match parse_transaction_id(&body.tx_id) {
+        Ok(id) => id,
+        Err(e) => return error(StatusCode::BAD_REQUEST, e, request_id).into_response(),
+    };
+
+    // Parse decision
+    let decision = match body.decision.to_lowercase().as_str() {
+        "approve" | "approved" => crate::types::ApprovalDecision::Approved,
+        "reject" | "rejected" => crate::types::ApprovalDecision::Rejected,
+        _ => {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "Invalid decision. Must be 'approve' or 'reject'",
+                request_id,
+            ).into_response();
+        }
+    };
+
+    // Try to resolve the pending approval
+    let resolved = state.approval_channel.resolve_approval(&tx_id, decision).await;
+
+    if resolved {
+        // Also update the transaction status in storage
+        let approved = decision == crate::types::ApprovalDecision::Approved;
+        match crate::queue::processor::handle_user_approval(
+            &state,
+            tx_id,
+            approved,
+            body.user_id.clone(),
+        ).await {
+            Ok(()) => {
+                info!(
+                    transaction_id = %tx_id,
+                    decision = ?decision,
+                    user_id = %body.user_id,
+                    "Approval response processed via API"
+                );
+                success(
+                    serde_json::json!({
+                        "resolved": true,
+                        "tx_id": tx_id.to_string(),
+                        "decision": body.decision,
+                    }),
+                    request_id,
+                ).into_response()
+            }
+            Err(e) => {
+                warn!(
+                    transaction_id = %tx_id,
+                    error = %e,
+                    "Failed to process approval response"
+                );
+                error_response(e, request_id).into_response()
+            }
+        }
+    } else {
+        // No pending approval found - might already be resolved or timed out
+        error(
+            StatusCode::NOT_FOUND,
+            "No pending approval found for this transaction. It may have already been resolved or timed out.",
+            request_id,
+        ).into_response()
+    }
+}
+
+/// Create an approval request manually (for testing or agent-initiated approvals)
+pub async fn create_approval_request(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(body): Json<ApprovalRequestInput>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+
+    // Validate API key
+    if let Some(key) = extract_api_key(&headers) {
+        if !validate_api_key(&state, &key) {
+            return error(StatusCode::UNAUTHORIZED, "Invalid API key", request_id).into_response();
+        }
+    } else if state.config.api.api_key.is_some() {
+        return error(StatusCode::UNAUTHORIZED, "API key required", request_id).into_response();
+    }
+
+    // Parse transaction ID
+    let tx_id = match parse_transaction_id(&body.tx_id) {
+        Ok(id) => id,
+        Err(e) => return error(StatusCode::BAD_REQUEST, e, request_id).into_response(),
+    };
+
+    // Get the transaction from storage
+    let record = match state.storage.get_transaction(tx_id).await {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            return error(StatusCode::NOT_FOUND, "Transaction not found", request_id).into_response();
+        }
+        Err(e) => {
+            return error_response(e, request_id).into_response();
+        }
+    };
+
+    // Check if transaction is awaiting approval
+    if record.status != crate::types::TransactionStatus::AwaitingApproval {
+        return error(
+            StatusCode::BAD_REQUEST,
+            format!("Transaction is not awaiting approval. Current status: {}", record.status),
+            request_id,
+        ).into_response();
+    }
+
+    // The approval request should already be registered by the approval channel
+    // when the transaction was evaluated. Return the current pending requests.
+    let pending = state.approval_channel.get_pending_requests().await;
+
+    success(
+        serde_json::json!({
+            "message": "Use GET /approval/pending to see pending approvals",
+            "approvals": pending,
+            "count": pending.len(),
+        }),
+        request_id,
+    ).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

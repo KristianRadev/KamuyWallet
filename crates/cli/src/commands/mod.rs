@@ -13,6 +13,7 @@ pub mod lock;
 pub mod pending;
 pub mod policy;
 pub mod recover;
+pub mod reject;
 pub mod rotate;
 pub mod show_recovery_key;
 pub mod sign;

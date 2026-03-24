@@ -292,6 +292,8 @@ Response:
 
 ## Security Model
 
+> **Note:** This is the target security model. Full implementation of OS-isolated password input is planned for v0.3.0 (see Security Roadmap below).
+
 1. **Non-custodial**: Full private key never exists in one place
 2. **Threshold**: 2-of-3 required for any signature
 3. **Process Isolation**: Steward runs as separate process from Agent
@@ -299,6 +301,37 @@ Response:
 5. **Fail-closed**: Default deny on policy violations or missing API key
 6. **Constant-time validation**: API keys compared in constant time to prevent timing attacks
 7. **Sanitized errors**: Internal errors hidden in production mode
+
+## Security Roadmap
+
+### Current State (v0.2.6)
+
+- Wallet creation shows warning that it must be run by a human
+- User Key is not displayed in stdout (use `kamuy show-recovery-key` with password)
+- Agent config is exported separately via `kamuy export-agent-config`
+- **Known limitation**: AI agents running on the same machine can still capture all data during wallet creation (terminal input is visible to agents)
+
+### Problem Statement
+
+- AI agents are man-in-the-middle on all CLI input
+- Any password typed in terminal can be intercepted
+- Agent can provide its own email during init
+- Software-only solutions cannot distinguish human from agent
+
+### Solution Roadmap (v0.3.0)
+
+- Native OS secure input dialogs (macOS Keychain, Windows Hello, Linux Polkit)
+- Password will be entered in OS-isolated dialog, not CLI
+- Agent can run CLI but cannot intercept OS-protected input
+- Estimated timeline: 5-7 days development
+- macOS and Windows priority, Linux to follow
+
+### Security Model Evolution
+
+```
+v0.2.x: CLI password input (agent can intercept)
+v0.3.0: Native OS dialogs (agent cannot intercept)
+```
 
 ## Configuration
 

@@ -88,7 +88,7 @@ pub async fn approve_policy(ctx: Arc<CliContext>, id: String) -> Result<()> {
 
 /// Approve a new address over threshold (TerminalPassword level)
 /// Always prompts for password - required for new addresses
-pub async fn approve_address(ctx: Arc<CliContext>, id: String) -> Result<()> {
+pub async fn approve_address(_ctx: Arc<CliContext>, id: String) -> Result<()> {
     println!("{}", "Approve New Address".bold().cyan());
     println!();
 
@@ -184,30 +184,33 @@ pub async fn approve_tx(ctx: Arc<CliContext>, id: String, with_password: bool) -
     Ok(())
 }
 
-/// Execute approve/reject command (legacy compatibility)
+/// Execute approve/reject command (uses new inline approval API)
+/// Called when user runs: kamuy approve <id> or kamuy reject <id>
 pub async fn execute(ctx: Arc<CliContext>, tx_id: String, approve: bool) -> Result<()> {
     let action = if approve { "Approve" } else { "Reject" };
     println!("{} {}", action, "Transaction".bold().cyan());
     println!();
 
-    // Get transaction details
-    let spinner = create_spinner("Fetching transaction...");
-    let tx = match ctx.steward.get_transaction(&tx_id).await? {
-        Some(tx) => tx,
+    // First check if this is a pending approval via the new API
+    let spinner = create_spinner("Fetching approval request...");
+    let approval = match ctx.steward.get_pending_request(&tx_id).await? {
+        Some(a) => a,
         None => {
             spinner.finish_with_message("Not found".to_string());
-            print_error(&format!("Transaction {} not found", tx_id));
+            print_error(&format!("No pending approval found for transaction {}", tx_id));
+            print_info("The transaction may have already been resolved or timed out.");
             return Ok(());
         }
     };
-    spinner.finish_with_message("Transaction loaded".to_string());
+    spinner.finish_with_message("Approval request loaded".to_string());
 
     println!();
     println!("{}", "Transaction Details:".bold());
-    println!("  ID: {}", tx.id.to_string().cyan());
-    println!("  Amount: {} {}", tx.request.value.cyan(), tx.request.token);
-    println!("  To: {}", tx.request.to.cyan());
-    println!("  Status: {:?}", tx.status);
+    println!("  ID: {}", approval.tx_id.cyan());
+    println!("  Amount: {} {}", approval.amount_display.cyan(), approval.token);
+    println!("  To: {}", approval.to.cyan());
+    println!("  Chain ID: {}", approval.chain_id);
+    println!("  Reason: {}", approval.reason);
     println!();
 
     // Confirm
@@ -224,17 +227,25 @@ pub async fn execute(ctx: Arc<CliContext>, tx_id: String, approve: bool) -> Resu
 
     println!();
 
-    // Execute
-    let spinner = create_spinner(&format!("{}ing transaction...", action.to_lowercase()));
+    // Execute via the new approval/respond API
+    let decision = if approve { "approve" } else { "reject" };
+    let spinner = create_spinner(&format!("Submitting {}...", decision));
 
-    if approve {
-        ctx.steward.approve_transaction(&tx_id).await?;
-        spinner.finish_with_message("Approved!".to_string());
-        print_success(&format!("Transaction {} approved", tx_id));
-    } else {
-        ctx.steward.reject_transaction(&tx_id).await?;
-        spinner.finish_with_message("Rejected!".to_string());
-        print_success(&format!("Transaction {} rejected", tx_id));
+    match ctx.steward.respond_to_approval(&tx_id, decision).await {
+        Ok(result) => {
+            spinner.finish_with_message(format!("{}!", if approve { "Approved" } else { "Rejected" }));
+            if approve {
+                print_success(&format!("Transaction {} approved", tx_id));
+            } else {
+                print_success(&format!("Transaction {} rejected", tx_id));
+            }
+            println!("  Decision recorded: {}", result.decision);
+            println!("  Resolved: {}", result.resolved);
+        }
+        Err(e) => {
+            spinner.finish_with_message("Failed".to_string());
+            print_error(&format!("{} failed: {}", action, e));
+        }
     }
 
     Ok(())

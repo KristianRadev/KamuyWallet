@@ -1,26 +1,30 @@
 //! # Approval Channels
 //!
 //! Pluggable approval system supporting multiple channels:
-//! - Telegram: Mobile notifications with inline buttons
+//! - Telegram: Mobile notifications via agent's own Telegram bot (inline flow)
 //! - Terminal: Interactive console approval
 //! - Auto: No approval needed (policy-based)
+//!
+//! ## Inline Telegram Flow
+//!
+//! The Steward does NOT run its own Telegram bot. Instead, it provides API endpoints
+//! that the agent uses to handle approval through its own Telegram channel:
+//!
+//! 1. Steward receives transaction that requires approval
+//! 2. Steward stores pending approval and returns to agent
+//! 3. Agent polls GET /approval/pending to get pending approvals
+//! 4. Agent displays approval request in its own Telegram chat with user
+//! 5. When user responds, agent calls POST /approval/respond
+//! 6. Steward resolves the pending approval and continues processing
 
 use crate::error::{Result, StewardError};
-use crate::types::TransactionRecord;
+use crate::types::{ApprovalDecision, TransactionRecord, ApprovalRequest};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{oneshot, RwLock};
 use tokio::time::timeout;
-
-/// Decision from approval request
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ApprovalDecision {
-    Approved,
-    Rejected,
-    TimedOut,
-}
 
 /// Channel for requesting user approval
 #[async_trait]
@@ -36,13 +40,14 @@ pub trait ApprovalChannel: Send + Sync {
     fn is_available(&self) -> bool;
 }
 
-/// Pending approval request
+/// Pending approval request with sender for notification
 #[derive(Debug)]
 struct PendingApproval {
     sender: oneshot::Sender<ApprovalDecision>,
+    request: ApprovalRequest,
 }
 
-/// Manager for pending approvals (shared between channels)
+/// Manager for pending approvals (shared between channels and API)
 #[derive(Debug, Default)]
 pub struct PendingApprovals {
     pending: Arc<RwLock<HashMap<crate::types::TransactionId, PendingApproval>>>,
@@ -56,17 +61,26 @@ impl PendingApprovals {
     }
 
     /// Register a pending approval and get a receiver
-    pub async fn register(&self, tx_id: crate::types::TransactionId) -> oneshot::Receiver<ApprovalDecision> {
+    pub async fn register(
+        &self,
+        tx_id: crate::types::TransactionId,
+        request: ApprovalRequest,
+    ) -> oneshot::Receiver<ApprovalDecision> {
         let (tx, rx) = oneshot::channel();
         let mut pending = self.pending.write().await;
         pending.insert(tx_id, PendingApproval {
             sender: tx,
+            request,
         });
         rx
     }
 
-    /// Resolve a pending approval (called when user responds)
-    pub async fn resolve(&self, tx_id: &crate::types::TransactionId, decision: ApprovalDecision) -> bool {
+    /// Resolve a pending approval (called when user responds via API)
+    pub async fn resolve(
+        &self,
+        tx_id: &crate::types::TransactionId,
+        decision: ApprovalDecision,
+    ) -> bool {
         let mut pending = self.pending.write().await;
         if let Some(p) = pending.remove(tx_id) {
             let _ = p.sender.send(decision);
@@ -84,6 +98,18 @@ impl PendingApprovals {
     /// Get count of pending approvals
     pub async fn count(&self) -> usize {
         self.pending.read().await.len()
+    }
+
+    /// Get all pending approval requests
+    pub async fn get_pending_requests(&self) -> Vec<ApprovalRequest> {
+        let pending = self.pending.read().await;
+        pending.values().map(|p| p.request.clone()).collect()
+    }
+
+    /// Get a specific pending request
+    pub async fn get_request(&self, tx_id: &crate::types::TransactionId) -> Option<ApprovalRequest> {
+        let pending = self.pending.read().await;
+        pending.get(tx_id).map(|p| p.request.clone())
     }
 }
 
@@ -171,7 +197,7 @@ impl CompositeApprovalChannel {
         }
     }
 
-    /// Resolve a pending approval (called by Telegram callback or API)
+    /// Resolve a pending approval (called by API endpoint)
     pub async fn resolve_approval(
         &self,
         tx_id: &crate::types::TransactionId,
@@ -183,6 +209,16 @@ impl CompositeApprovalChannel {
     /// Get pending approvals manager
     pub fn pending(&self) -> PendingApprovals {
         self.pending.clone()
+    }
+
+    /// Get pending approval requests (for API)
+    pub async fn get_pending_requests(&self) -> Vec<ApprovalRequest> {
+        self.pending.get_pending_requests().await
+    }
+
+    /// Get a specific pending request (for API)
+    pub async fn get_pending_request(&self, tx_id: &crate::types::TransactionId) -> Option<ApprovalRequest> {
+        self.pending.get_request(tx_id).await
     }
 }
 
@@ -199,7 +235,8 @@ impl ApprovalChannelConfig {
     pub fn create_channels(&self) -> CompositeApprovalChannel {
         let mut channels: Vec<Box<dyn ApprovalChannel>> = Vec::new();
 
-        // Telegram first (if configured and enabled)
+        // Telegram inline approval (via API, not bot)
+        // This is enabled when telegram is configured, but uses the API flow
         #[cfg(feature = "telegram")]
         if let Some(ref tg_config) = self.telegram {
             if tg_config.enabled {
@@ -285,7 +322,13 @@ impl ApprovalChannel for TerminalApprovalChannel {
     }
 }
 
-/// Telegram-based approval channel
+/// Telegram-based approval channel (inline flow - no bot)
+///
+/// This channel does NOT run its own Telegram bot. Instead, it:
+/// 1. Registers pending approvals in a shared store
+/// 2. Provides API endpoints for the agent to poll and respond
+/// 3. The agent displays approvals in its own Telegram chat
+/// 4. User responses come back via API, not Telegram callbacks
 #[cfg(feature = "telegram")]
 pub struct TelegramApprovalChannel {
     config: crate::config::TelegramConfig,
@@ -305,84 +348,43 @@ impl TelegramApprovalChannel {
         Self { config, pending }
     }
 
-    /// Send approval request to Telegram and wait for response
-    async fn send_and_wait(&self, tx: &TransactionRecord) -> Result<ApprovalDecision> {
-        use teloxide::prelude::*;
-        use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+    /// Register approval request and wait for API response
+    /// This is the inline flow - Steward doesn't send Telegram messages,
+    /// it just stores the request and waits for the agent to respond via API
+    async fn register_and_wait(&self, tx: &TransactionRecord) -> Result<ApprovalDecision> {
+        use crate::types::{ApprovalRequest, ApprovalRequestStatus};
 
-        let token = self.config.token.as_ref()
-            .ok_or_else(|| StewardError::Config("No Telegram token".to_string()))?;
-
-        let bot = Bot::new(token);
-
-        // Format the message - escape special chars for MarkdownV2
+        // Format the amount for display
         let amount_display = crate::types::format_amount(&tx.request.value, &tx.request.token);
-        let addr_short = truncate_address(&tx.request.to);
-        let chain = chain_name(tx.request.chain_id);
-        let reason = tx.policy_result.as_ref()
-            .map(|r| r.reason.as_str())
-            .unwrap_or("Amount exceeds auto-approve limit");
 
-        // Build message as plain text
-        let text = format!(
-            "⚠️ Approval Required\n\
-            ━━━━━━━━━━━━━━━\n\n\
-            💰 Amount: {}\n\
-            📍 To: {}\n\
-            ⛓ Chain: {}\n\
-            🪙 Token: {}\n\n\
-            📝 Reason: {}\n\n\
-            ⏰ Time: {}",
+        // Get reason from policy result
+        let reason = tx.policy_result.as_ref()
+            .map(|r| r.reason.clone())
+            .unwrap_or_else(|| "Amount exceeds auto-approve limit".to_string());
+
+        // Create approval request
+        let now = chrono::Utc::now();
+        let approval_request = ApprovalRequest {
+            tx_id: tx.id,
+            to: tx.request.to.clone(),
             amount_display,
-            addr_short,
-            chain,
-            tx.request.token,
+            token: tx.request.token.clone(),
+            chain_id: tx.request.chain_id,
             reason,
-            chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
+            created_at: now,
+            expires_at: now + chrono::Duration::seconds(self.config.notifications.timeout_secs as i64),
+            status: ApprovalRequestStatus::Pending,
+        };
+
+        tracing::info!(
+            transaction_id = %tx.id,
+            "Registered inline approval request - agent should poll /approval/pending"
         );
 
-        // Create approve/reject buttons
-        let keyboard = InlineKeyboardMarkup::new(vec![
-            vec![
-                InlineKeyboardButton::callback("✅ Approve", format!("approve:{}", tx.id)),
-                InlineKeyboardButton::callback("❌ Reject", format!("reject:{}", tx.id)),
-            ],
-        ]);
+        // Register pending approval and wait for API response
+        let rx = self.pending.register(tx.id, approval_request).await;
 
-        // Register pending approval
-        let rx = self.pending.register(tx.id).await;
-
-        // Send to all allowed chats
-        let mut sent = false;
-        for chat_id in &self.config.allowed_chats {
-            match bot.send_message(ChatId(*chat_id), &text)
-                .reply_markup(keyboard.clone())
-                .await {
-                Ok(_) => {
-                    tracing::info!(
-                        chat_id = chat_id,
-                        transaction_id = %tx.id,
-                        "Sent approval request via Telegram"
-                    );
-                    sent = true;
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        chat_id = chat_id,
-                        error = %e,
-                        "Failed to send approval request"
-                    );
-                }
-            }
-        }
-
-        if !sent {
-            // No chats configured or all failed
-            self.pending.resolve(&tx.id, ApprovalDecision::TimedOut).await;
-            return Err(StewardError::Telegram("No valid chats to send approval".to_string()));
-        }
-
-        // Wait for response (the callback handler will resolve this)
+        // Wait for response (the API endpoint will resolve this)
         match rx.await {
             Ok(decision) => Ok(decision),
             Err(_) => {
@@ -400,16 +402,16 @@ impl ApprovalChannel for TelegramApprovalChannel {
         &self,
         tx: &TransactionRecord,
     ) -> Result<ApprovalDecision> {
-        self.send_and_wait(tx).await
+        self.register_and_wait(tx).await
     }
 
     fn is_available(&self) -> bool {
-        let available = self.config.enabled && self.config.token.is_some() && !self.config.allowed_chats.is_empty();
+        // Telegram inline approval is available when enabled
+        // We don't need a token or allowed_chats since the agent handles Telegram
+        let available = self.config.enabled;
         tracing::debug!(
-            "TelegramApprovalChannel is_available: enabled={}, has_token={}, chats_count={}, result={}",
+            "TelegramApprovalChannel is_available: enabled={}, result={}",
             self.config.enabled,
-            self.config.token.is_some(),
-            self.config.allowed_chats.len(),
             available
         );
         available
@@ -466,6 +468,8 @@ impl ApprovalChannel for TelegramApprovalChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{ApprovalRequest, ApprovalRequestStatus};
+    use chrono::Utc;
 
     #[test]
     fn test_chain_name() {
@@ -482,7 +486,20 @@ mod tests {
 
         assert!(!pending.has_pending(&tx_id).await);
 
-        let _rx = pending.register(tx_id).await;
+        // Create a test approval request
+        let request = ApprovalRequest {
+            tx_id,
+            to: "0x1234567890".to_string(),
+            amount_display: "100 USDC".to_string(),
+            token: "USDC".to_string(),
+            chain_id: 1,
+            reason: "Test approval".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            status: ApprovalRequestStatus::Pending,
+        };
+
+        let _rx = pending.register(tx_id, request).await;
         assert!(pending.has_pending(&tx_id).await);
         assert_eq!(pending.count().await, 1);
 

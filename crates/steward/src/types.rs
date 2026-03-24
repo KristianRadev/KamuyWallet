@@ -475,6 +475,67 @@ pub enum ApprovalLevel {
     TerminalPassword,
 }
 
+/// Approval request sent to agent for inline Telegram approval
+/// The Steward stores this and waits for agent to poll and respond
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalRequest {
+    /// Transaction ID requiring approval
+    pub tx_id: TransactionId,
+    /// Transaction details for display
+    pub to: String,
+    /// Amount in human-readable format
+    pub amount_display: String,
+    /// Token symbol
+    pub token: String,
+    /// Chain ID
+    pub chain_id: u64,
+    /// Reason approval is required
+    pub reason: String,
+    /// When the request was created
+    pub created_at: DateTime<Utc>,
+    /// When the request expires
+    pub expires_at: DateTime<Utc>,
+    /// Current status
+    pub status: ApprovalRequestStatus,
+}
+
+/// Status of an approval request
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalRequestStatus {
+    /// Waiting for user response
+    Pending,
+    /// User approved
+    Approved,
+    /// User rejected
+    Rejected,
+    /// Timed out
+    TimedOut,
+}
+
+/// Response to an approval request
+/// Sent by agent when user approves/rejects via Telegram inline
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalResponse {
+    /// Transaction ID
+    pub tx_id: TransactionId,
+    /// User's decision
+    pub decision: ApprovalDecision,
+    /// User identifier (e.g., Telegram user ID)
+    pub user_id: String,
+    /// Optional comment
+    pub comment: Option<String>,
+}
+
+/// Decision from approval request
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    Approved,
+    Rejected,
+    TimedOut,
+}
+
 impl std::fmt::Display for ApprovalLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

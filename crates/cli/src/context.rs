@@ -431,6 +431,108 @@ impl StewardClient {
             .map(|d| d.agent_key)
             .ok_or_else(|| anyhow::anyhow!("No data in response"))
     }
+
+    /// Get pending approval requests
+    /// Agent polls this to display pending approvals to user via Telegram
+    pub async fn get_pending_approvals(&self) -> Result<Vec<ApprovalRequest>> {
+        let resp = self.build_request(reqwest::Method::GET, "/api/v1/approval/pending")
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("Failed to get pending approvals: {}", resp.status()));
+        }
+
+        let response: ApiResponse<PendingApprovalsResponse> = resp.json().await?;
+        Ok(response.data.map(|d| d.approvals).unwrap_or_default())
+    }
+
+    /// Get a specific pending approval request by transaction ID
+    pub async fn get_pending_request(&self, tx_id: &str) -> Result<Option<ApprovalRequest>> {
+        // Validate TX ID is valid UUID format
+        if !is_valid_uuid(tx_id) {
+            return Err(anyhow::anyhow!("Invalid transaction ID format: must be valid UUID"));
+        }
+
+        let resp = self.build_request(
+            reqwest::Method::GET,
+            &format!("/api/v1/approval/pending/{}", tx_id)
+        )
+            .send()
+            .await?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !resp.status().is_success() {
+            return Err(anyhow::anyhow!("Failed to get pending request: {}", resp.status()));
+        }
+
+        let response: ApiResponse<ApprovalRequest> = resp.json().await?;
+        Ok(response.data)
+    }
+
+    /// Respond to an approval request (approve or reject)
+    /// Called when user responds via Telegram inline buttons
+    pub async fn respond_to_approval(&self, tx_id: &str, decision: &str) -> Result<ApprovalResponseResult> {
+        // Validate TX ID is valid UUID format
+        if !is_valid_uuid(tx_id) {
+            return Err(anyhow::anyhow!("Invalid transaction ID format: must be valid UUID"));
+        }
+
+        // Validate decision
+        let decision_lower = decision.to_lowercase();
+        if decision_lower != "approve" && decision_lower != "reject" {
+            return Err(anyhow::anyhow!("Invalid decision: must be 'approve' or 'reject'"));
+        }
+
+        let resp = self.build_request(reqwest::Method::POST, "/api/v1/approval/respond")
+            .json(&serde_json::json!({
+                "tx_id": tx_id,
+                "decision": decision_lower,
+                "user_id": "cli"
+            }))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let err: StewardError = resp.json().await?;
+            return Err(anyhow::anyhow!("Approval response failed: {}", err.error));
+        }
+
+        let response: ApiResponse<ApprovalResponseResult> = resp.json().await?;
+        response.data.ok_or_else(|| anyhow::anyhow!("No data in response"))
+    }
+}
+
+/// Pending approvals response from API
+#[derive(Debug, serde::Deserialize)]
+pub struct PendingApprovalsResponse {
+    pub approvals: Vec<ApprovalRequest>,
+    pub count: usize,
+}
+
+/// Approval request for inline Telegram flow
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ApprovalRequest {
+    pub tx_id: String,
+    pub to: String,
+    pub amount_display: String,
+    pub token: String,
+    pub chain_id: u64,
+    pub reason: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub status: String,
+}
+
+/// Result of responding to an approval request
+#[derive(Debug, serde::Deserialize)]
+pub struct ApprovalResponseResult {
+    pub resolved: bool,
+    pub tx_id: String,
+    pub decision: String,
 }
 
 /// Steward health response

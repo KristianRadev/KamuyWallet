@@ -78,7 +78,7 @@ pub struct AppState {
     pub notifier: std::sync::Arc<queue::TransactionNotifier>,
     /// Pending approvals (shared between Telegram callbacks and approval channel)
     pub pending_approvals: approval::PendingApprovals,
-    /// Temporary private keys for wallet creation flow (cleared after password set)
+    /// Temporary private keys for wallet creation flow (cleared after creation)
     pub temp_private_keys: std::sync::Arc<tokio::sync::Mutex<TempPrivateKeys>>,
 }
 
@@ -87,16 +87,6 @@ pub struct AppState {
 pub struct TempPrivateKeys {
     pub agent: Option<String>,
     pub user: Option<String>,
-    pub awaiting_password: bool,
-    /// FIX #2: First password entry for confirmation flow
-    /// Stores the first password while user enters confirmation
-    pub pending_password_confirm: Option<String>,
-    /// FIX #1: Pending approval action waiting for password verification
-    /// (tx_id, approved: bool) - if Some, user needs to enter password to complete the action
-    pub pending_approval_action: Option<(crate::types::TransactionId, bool)>,
-    /// Pending policy change approval waiting for password verification
-    /// (policy_change_id, approved: bool) - if Some, user needs to enter password to complete the action
-    pub pending_policy_change_action: Option<(crate::types::PolicyChangeRequestId, bool)>,
 }
 
 impl AppState {
@@ -187,11 +177,11 @@ impl AppState {
 }
 
 // Re-export main types
-pub use approval::{ApprovalChannelConfig, CompositeApprovalChannel, ApprovalDecision, PendingApprovals};
+pub use approval::{ApprovalChannelConfig, CompositeApprovalChannel, PendingApprovals};
 pub use config::StewardConfig;
 pub use error::{StewardError, Result};
 pub use types::{
-    ApiResponse, HealthResponse, PaginatedResponse, Pagination,
+    ApiResponse, ApprovalDecision, HealthResponse, PaginatedResponse, Pagination,
     PolicyChangeRecord, PolicyChangeStatus, PolicyDecision, PolicyResult,
     TransactionId, TransactionRecord, TransactionRequest, TransactionStatus, WalletInfo,
 };

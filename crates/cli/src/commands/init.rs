@@ -41,14 +41,35 @@ pub async fn execute(
         return Ok(());
     }
 
-    // Handle reset
+    // Handle reset - only delete user data files, NOT the entire directory
+    // (binaries like 'kamuy' and 'kamuy-steward' are also in ~/.kamuy/)
     if reset {
         let data_dir = crate::config::SimpleConfig::data_dir()?;
         if data_dir.exists() {
-            print_info("Resetting wallet...");
+            print_info("Resetting wallet data...");
             // Stop steward first if running
             let _ = stop_steward_if_running().await;
-            std::fs::remove_dir_all(&data_dir)?;
+
+            // Delete only user data files, not binaries
+            let files_to_delete = [
+                "config.json",
+                "wallet.json",
+                "steward.db",
+                "steward.log",
+                "steward.pid",
+                "user.key",
+            ];
+
+            for filename in &files_to_delete {
+                let filepath = data_dir.join(filename);
+                if filepath.exists() {
+                    if let Err(e) = std::fs::remove_file(&filepath) {
+                        print_warning(&format!("Failed to remove {}: {}", filename, e));
+                    }
+                }
+            }
+
+            print_success("Wallet data cleared. Binaries preserved.");
         }
     }
 
@@ -129,9 +150,16 @@ pub async fn execute(
 
     spinner.finish_with_message("Configuration saved!".to_string());
 
-    // Step 8: Start steward daemon
+    // Step 8: Start steward daemon (but don't fail if it doesn't start)
     println!();
-    start_steward(&simple_config).await?;
+    let steward_started = match start_steward(&simple_config).await {
+        Ok(_) => true,
+        Err(e) => {
+            print_warning(&format!("Could not auto-start Steward: {}", e));
+            print_info("You can start it manually later with 'kamuy start'");
+            false
+        }
+    };
 
     // Step 9: Wait for steward to be ready, then create wallet
     println!();
@@ -142,27 +170,31 @@ pub async fn execute(
         Some(simple_config.api_key.clone()),
     );
 
-    // Wait for steward to be healthy (with retries)
+    // Wait for steward to be healthy (with retries) - only if we started it
     let mut steward_ready = false;
-    for attempt in 1..=10 {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if steward_client.health().await.is_ok() {
-            steward_ready = true;
-            break;
+    if steward_started {
+        for attempt in 1..=10 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            if steward_client.health().await.is_ok() {
+                steward_ready = true;
+                break;
+            }
+            spinner.set_message(format!("Waiting for Steward... (attempt {}/10)", attempt));
         }
-        spinner.set_message(format!("Waiting for Steward... (attempt {}/10)", attempt));
     }
 
+    let mut wallet_created = false;
+    let mut email_backup_result: Option<crate::context::EmailBackupResult> = None;
+
     if !steward_ready {
-        spinner.finish_with_message("Steward not responding".red().to_string());
-        print_error("Steward failed to start in time");
-        print_info("Run 'kamuy start' manually and then 'kamuy unlock'");
-        return Ok(());
-    }
+        spinner.finish_with_message("Steward not available".yellow().to_string());
+        print_warning("Could not connect to Steward - wallet keys shown below");
+        print_info("Run 'kamuy start' and 'kamuy unlock' after setup to enable transactions");
+    } else {
 
     spinner.set_message("Creating wallet in Steward...".to_string());
 
-    let (wallet_created, email_backup_result) = match steward_client.create_wallet(
+    let (created, backup) = match steward_client.create_wallet(
         &wallet_address,
         chain_id,
         &agent_key,
@@ -181,6 +213,8 @@ pub async fn execute(
             (false, None)
         }
     };
+    wallet_created = created;
+    email_backup_result = backup;
 
     // Update spending limits policy if wallet was created
     if wallet_created {
@@ -201,6 +235,7 @@ pub async fn execute(
             print_warning(&format!("Could not set spending limits: {}", e));
         }
     }
+    } // Close the else block for steward_ready
 
     // Step 10: Display wallet info
     println!();

@@ -113,7 +113,7 @@ async fn process_transaction(
             let approval_result = state.approval_channel.request_approval(&record).await;
 
             match approval_result {
-                Ok(crate::approval::ApprovalDecision::Approved) => {
+                Ok(crate::types::ApprovalDecision::Approved) => {
                     info!(
                         transaction_id = %record.id,
                         "Transaction approved via approval channel"
@@ -132,7 +132,7 @@ async fn process_transaction(
                     state.storage.update_transaction(&record).await?;
                     notify_completion(state, &record).await;
                 }
-                Ok(crate::approval::ApprovalDecision::Rejected) => {
+                Ok(crate::types::ApprovalDecision::Rejected) => {
                     warn!(
                         transaction_id = %record.id,
                         "Transaction rejected by user"
@@ -144,7 +144,7 @@ async fn process_transaction(
 
                     notify_completion(state, &record).await;
                 }
-                Ok(crate::approval::ApprovalDecision::TimedOut) => {
+                Ok(crate::types::ApprovalDecision::TimedOut) => {
                     warn!(
                         transaction_id = %record.id,
                         "Transaction approval timed out"

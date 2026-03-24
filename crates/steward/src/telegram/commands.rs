@@ -103,14 +103,11 @@ pub enum Command {
     #[command(description = "Show help message")]
     Help,
     /// Show status
-    #[command(description = "Show wallet status and pending transactions")]
+    #[command(description = "Show wallet status")]
     Status,
     /// Show policy
     #[command(description = "Show current policy rules")]
     Policy,
-    /// List pending transactions
-    #[command(description = "List transactions awaiting approval")]
-    Pending,
     /// Show transaction history
     #[command(description = "Show last 5 transactions")]
     History,
@@ -142,25 +139,22 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command, state: Arc<cra
 
     match cmd {
         Command::Start => {
-            let welcome = r#"👋 Welcome to Kamuy Wallet Steward!
+            let welcome = r#"Welcome to Kamuy Wallet Steward!
 
 I help manage your AI wallet securely.
 
 What I can do:
-• ✅ Approve or reject transactions
-• 📊 View wallet status and balances
-• 🔐 Manage policy rules
-• 📋 List pending transactions
+• View wallet status and balances
+• Manage policy rules
+• List pending transactions
 
 Commands:
 /help - Show all commands
 /status - Wallet overview
-/pending - Transactions needing approval
 /policy - Current spending limits
 /history - Recent transactions
 
 Security:
-• I only approve transactions you explicitly allow
 • All transactions are logged and auditable
 • Policy limits protect against overspending"#;
 
@@ -169,18 +163,18 @@ Security:
                 .map_err(|e| StewardError::Telegram(e.to_string()))?;
         }
         Command::Help => {
-            let help = r#"📚 Kamuy Wallet Commands
+            let help = r#"Kamuy Wallet Commands
 
 /start - Start the bot and show welcome message
 /help - Show this help message
-/status - Show wallet status and pending transactions
+/status - Show wallet status
 /policy - Show current policy rules
-/pending - List transactions awaiting approval
 /history - Show last 5 transactions
 /wallet - Show wallet address and balance
 /createwallet - Create a new smart wallet (Base Sepolia)
 
-When a transaction needs approval, you'll receive a notification with Approve/Reject buttons."#;
+The Steward provides read-only access to wallet information.
+Transaction approvals are handled via the API endpoints."#;
 
             bot.send_message(msg.chat.id, help)
                 .await
@@ -191,9 +185,6 @@ When a transaction needs approval, you'll receive a notification with Approve/Re
         }
         Command::Policy => {
             handle_policy(&bot, &msg, &state).await?;
-        }
-        Command::Pending => {
-            handle_pending(&bot, &msg, &state).await?;
         }
         Command::History => {
             handle_history(&bot, &msg, &state).await?;
@@ -235,18 +226,17 @@ async fn handle_status(bot: &Bot, msg: &Message, state: &Arc<crate::AppState>) -
     }
 
     let status = format!(
-        r#"📊 Wallet Status
+        r#"Wallet Status
 ━━━━━━━━━━━━━━━
 
-🔑 Key: {}
+Key: {}
 
-📥 Queue:
+Queue:
 • Pending: {}
 • Processing: {}
 • Awaiting approval: {}
 
-💡 Use /pending to see transactions needing approval
-💡 Use /wallet for wallet address"#,
+Use /wallet for wallet address"#,
         key_status,
         queue_size,
         processing,
@@ -312,54 +302,6 @@ async fn handle_policy(bot: &Bot, msg: &Message, state: &Arc<crate::AppState>) -
     );
 
     bot.send_message(msg.chat.id, policy)
-        .await
-        .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-    Ok(())
-}
-
-/// Handle /pending command
-async fn handle_pending(bot: &Bot, msg: &Message, state: &Arc<crate::AppState>) -> Result<()> {
-    let pending_txs = state.storage.get_pending_transactions().await
-        .map_err(|e| StewardError::Database(e.to_string()))?;
-
-    if pending_txs.is_empty() {
-        bot.send_message(msg.chat.id, "✅ No pending transactions requiring approval.")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        return Ok(());
-    }
-
-    // Show summary of pending transactions
-    let mut summary = format!("📋 Pending Transactions ({} total)\n━━━━━━━━━━━━━━━\n\n", pending_txs.len());
-
-    for (i, tx) in pending_txs.iter().enumerate().take(5) {
-        let amount_display = format_amount(&tx.request.value, &tx.request.token);
-        let addr_short = super::truncate_address(&tx.request.to);
-        let status_emoji = match tx.status {
-            TransactionStatus::AwaitingApproval => "🔄",
-            TransactionStatus::Evaluating => "⏳",
-            _ => "❓"
-        };
-
-        summary.push_str(&format!(
-            "{} #{} - ID: {}...\n   Amount: {}\n   To: {}\n   Status: {}\n\n",
-            status_emoji,
-            i + 1,
-            &tx.id.to_string()[..8],
-            amount_display,
-            addr_short,
-            tx.status
-        ));
-    }
-
-    if pending_txs.len() > 5 {
-        summary.push_str(&format!("... and {} more\n", pending_txs.len() - 5));
-    }
-
-    summary.push_str("\n💡 Use /history to see all recent transactions");
-
-    bot.send_message(msg.chat.id, summary)
         .await
         .map_err(|e| StewardError::Telegram(e.to_string()))?;
 
@@ -441,26 +383,10 @@ Time: {}
             history.push_str(&format!("Tx Hash: {}\n", hash));
         }
 
-        // Add approve/reject buttons if awaiting approval
-        if tx.status == TransactionStatus::AwaitingApproval {
-            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-
-            let keyboard = InlineKeyboardMarkup::new(vec![
-                vec![
-                    InlineKeyboardButton::callback("✅ Approve", format!("approve:{}", tx.id)),
-                    InlineKeyboardButton::callback("❌ Reject", format!("reject:{}", tx.id)),
-                ],
-            ]);
-
-            bot.send_message(msg.chat.id, history.clone())
-                .reply_markup(keyboard)
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            history.clear();
-        }
+        history.push_str("\n");
     }
 
-    // Send remaining history if any (and last tx didn't have buttons)
+    // Send the history
     if !history.is_empty() {
         bot.send_message(msg.chat.id, history)
             .await
@@ -736,10 +662,6 @@ async fn handle_create_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppSt
             let mut temp_keys = state.temp_private_keys.lock().await;
             temp_keys.agent = None;
             temp_keys.user = None;
-            temp_keys.awaiting_password = false;
-            temp_keys.pending_password_confirm = None;
-            temp_keys.pending_approval_action = None;
-            temp_keys.pending_policy_change_action = None;
         }
     }
 
@@ -843,50 +765,55 @@ async fn handle_create_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppSt
     state.storage.save_steward_key(&encrypted_steward).await
         .map_err(|e| StewardError::Database(e.to_string()))?;
 
-    // Store user private key temporarily in state for password setup
-    // This will be cleared after password is set or session ends
-    {
-        let mut temp_keys = state.temp_private_keys.lock().await;
-        temp_keys.agent = Some(agent_private.clone());
-        temp_keys.user = Some(user_private.clone());
-        temp_keys.awaiting_password = true;
-    }
+    // Also encrypt and store the user key with a generated password
+    // The user key is not shown in Telegram for security
+    let user_password = generate_secure_password();
+    let user_share = create_key_share(&user_private, 2, PartyRole::User)
+        .map_err(|e| StewardError::Internal(format!("Failed to create user key share: {}", e)))?;
+    let encrypted_user = encrypt_key_share(&user_share, &user_password)
+        .map_err(|e| StewardError::Internal(format!("Failed to encrypt user key: {}", e)))?;
+
+    // Compute password hash for verification later (via API only, not Telegram)
+    let mut hasher = Keccak256::new();
+    hasher.update(user_password.as_bytes());
+    let password_hash = hex::encode(hasher.finalize());
+
+    state.storage.save_user_key(&encrypted_user, &password_hash).await
+        .map_err(|e| StewardError::Database(e.to_string()))?;
 
     // Use full address - don't truncate for wallet creation
     let response = format!(
-        r#"✅ MPC Wallet Created!
+        r#"MPC Wallet Created!
 
-🆔 Wallet: {}
-⛓ Chain: Base Sepolia (84532)
+Wallet: {}
+Chain: Base Sepolia (84532)
 
-🔑 MPC Keys (2-of-3 threshold):
+MPC Keys (2-of-3 threshold):
   • Agent: {} (shown below)
   • Steward: {} (stored encrypted)
-  • User: {} (protected by your password)
+  • User: {} (stored encrypted)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔐 AGENT KEY FOR YOUR AI:
+AGENT KEY FOR YOUR AI:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 `{}`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️  SECURITY NOTES:
+SECURITY NOTES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-• Your USER KEY is NOT shown here - it's protected by your password
+• Your USER KEY is NOT shown here - it's stored encrypted
 • Only the AGENT KEY is shown - give this to your AI agent
 • With only the Agent key, NO ONE can drain your funds (needs 2-of-3)
-• Set your password below to protect your User Key
 
 The Steward key is stored encrypted in the database.
-The User key will be encrypted with your password.
+The User key is also encrypted and stored.
 
-💰 Next Steps:
-1. ⭐ COPY the AGENT KEY above to your AI agent
-2. 🔐 Click "Set Password" below to protect your User Key
-3. 💰 Fund the wallet with USDC on Base Sepolia
-4. 📱 Use /wallet to view details"#,
+Next Steps:
+1. COPY the AGENT KEY above to your AI agent
+2. Fund the wallet with USDC on Base Sepolia
+3. Use /wallet to view details"#,
         wallet_address,
         super::truncate_address(&agent_address),
         super::truncate_address(&steward_address),
@@ -894,17 +821,7 @@ The User key will be encrypted with your password.
         agent_private
     );
 
-    // Add inline keyboard with "Set Password" button
-    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-    
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback("🔐 Set Password", "set_password"),
-        ],
-    ]);
-
     bot.send_message(msg.chat.id, response)
-        .reply_markup(keyboard)
         .await
         .map_err(|e| StewardError::Telegram(e.to_string()))?;
 
@@ -917,439 +834,6 @@ The User key will be encrypted with your password.
     );
 
     Ok(())
-}
-
-/// Handle callback queries (inline buttons)
-pub async fn handle_callback(bot: Bot, q: teloxide::types::CallbackQuery, state: Arc<crate::AppState>) -> Result<()> {
-    let data = q.data.clone().unwrap_or_default();
-    let chat_id = q.message.as_ref().map(|m| m.chat().id);
-
-    info!(callback_data = %data, "Received Telegram callback");
-
-    // Handle "set_password" action specially
-    if data == "set_password" {
-        return handle_set_password_callback(bot, q, state).await;
-    }
-
-    // Handle policy change callbacks: "policy_approve:uuid" or "policy_reject:uuid"
-    if data.starts_with("policy_") {
-        return handle_policy_change_callback(bot, q, state).await;
-    }
-
-    // Parse callback data: "approve:uuid" or "reject:uuid"
-    let parts: Vec<&str> = data.split(':').collect();
-    if parts.len() != 2 {
-        if let Some(cid) = chat_id {
-            bot.send_message(cid, "❌ Invalid callback data.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-        return Ok(());
-    }
-
-    let action = parts[0];
-    let tx_id_str = parts[1];
-
-    // Parse transaction ID
-    let uuid = match uuid::Uuid::parse_str(tx_id_str) {
-        Ok(u) => u,
-        Err(_) => {
-            if let Some(cid) = chat_id {
-                bot.send_message(cid, "❌ Invalid transaction ID.")
-                    .await
-                    .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            }
-            return Ok(());
-        }
-    };
-
-    let tx_id = crate::types::TransactionId::from(uuid);
-    let approved = action == "approve";
-
-    // FIX #1: Password verification before approval
-    // Instead of immediately processing, ask for password first
-    // Check if user has a password set up
-    let has_user_key = state.storage.has_user_key().await
-        .map_err(|e| StewardError::Database(e.to_string()))?;
-
-    if has_user_key {
-        // User has a password - require it before processing approval
-        // Store the pending action and ask for password
-        {
-            let mut temp_keys = state.temp_private_keys.lock().await;
-            temp_keys.pending_approval_action = Some((tx_id, approved));
-            temp_keys.awaiting_password = true;
-        }
-
-        // Answer callback to dismiss loading
-        bot.answer_callback_query(q.id)
-            .text("🔐 Enter your password to confirm")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        // Ask for password
-        if let Some(cid) = chat_id {
-            let prompt = if approved {
-                r#"🔐 Password Required to Approve
-
-Please enter your wallet password to confirm this transaction approval.
-
-⚠️ You must enter your password - there's no way to recover it if forgotten!"#
-            } else {
-                r#"🔐 Password Required to Reject
-
-Please enter your wallet password to confirm this transaction rejection.
-
-⚠️ You must enter your password - there's no way to recover it if forgotten!"#
-            };
-
-            bot.send_message(cid, prompt)
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-            // Update the original message
-            if let Some(msg) = q.message {
-                let new_text = if approved {
-                    "🔐 Awaiting password for approval..."
-                } else {
-                    "🔐 Awaiting password for rejection..."
-                };
-                bot.edit_message_text(msg.chat().id, msg.id(), new_text)
-                    .await
-                    .ok(); // Ignore errors if edit fails
-            }
-        }
-        
-        return Ok(());
-    }
-
-    // No password set yet - proceed without (this shouldn't normally happen 
-    // if they completed wallet creation, but allow for edge cases)
-    let decision = if approved {
-        crate::approval::ApprovalDecision::Approved
-    } else {
-        crate::approval::ApprovalDecision::Rejected
-    };
-
-    // Resolve the pending approval
-    // This will unblock the TelegramApprovalChannel that's waiting
-    let was_pending = state.pending_approvals.resolve(&tx_id, decision).await;
-
-    if was_pending {
-        // Answer the callback query
-        bot.answer_callback_query(q.id)
-            .text(if approved { "✅ Decision recorded!" } else { "❌ Decision recorded!" })
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        // Update the message
-        if let Some(msg) = q.message {
-            let new_text = if approved {
-                "✅ Transaction Approved\n\nProcessing transaction..."
-            } else {
-                "❌ Transaction Rejected\n\nThe transaction has been cancelled."
-            };
-
-            bot.edit_message_text(msg.chat().id, msg.id(), new_text)
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-    } else {
-        // No pending approval found - transaction might already be processed or timed out
-        bot.answer_callback_query(q.id)
-            .text("⚠️ This transaction is no longer pending.")
-            .show_alert(true)
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        // Update the message to show it's no longer relevant
-        if let Some(msg) = q.message {
-            bot.edit_message_text(msg.chat().id, msg.id(), "⏰ Transaction Expired\n\nThis transaction is no longer pending approval.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Handle "Set Password" callback - ask user for password
-async fn handle_set_password_callback(bot: Bot, q: teloxide::types::CallbackQuery, state: Arc<crate::AppState>) -> Result<()> {
-    let chat_id = q.message.as_ref().map(|m| m.chat().id);
-    
-    // Check if temp keys exist
-    {
-        let mut temp_keys = state.temp_private_keys.lock().await;
-        if temp_keys.user.is_none() {
-            bot.answer_callback_query(q.id)
-                .text("⚠️ No wallet creation in progress. Use /createwallet first.")
-                .show_alert(true)
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            return Ok(());
-        }
-        // Set flag to indicate we're waiting for password
-        temp_keys.awaiting_password = true;
-    }
-    
-    // Answer the callback to dismiss the loading state
-    bot.answer_callback_query(q.id)
-        .text("Enter your wallet password")
-        .await
-        .map_err(|e| StewardError::Telegram(e.to_string()))?;
-    
-    // Ask for password
-    if let Some(cid) = chat_id {
-        let prompt = r#"🔐 Set Your Wallet Password
-
-Please enter a strong password to protect your User Key.
-
-Requirements:
-• At least 8 characters
-• Use a mix of letters, numbers, and symbols
-
-⚠️ This password will be required to approve transactions!
-
-Send your password now:"#;
-
-        bot.send_message(cid, prompt)
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            
-        // Update the original message to show password is being set
-        if let Some(msg) = q.message {
-            bot.edit_message_text(msg.chat().id, msg.id(), "🔐 Password setup initiated...\n\nCheck your next message for password input.")
-                .await
-                .ok();
-        }
-    }
-    
-    Ok(())
-}
-
-/// Handle password input from user - process and store encrypted user key
-pub async fn handle_password_input(bot: Bot, msg: Message, state: Arc<crate::AppState>, password: String) -> Result<()> {
-    let chat_id = msg.chat.id;
-
-    // Check if we're awaiting password
-    let (user_private, agent_private, pending_approval_action, pending_policy_change_action) = {
-        let mut temp_keys = state.temp_private_keys.lock().await;
-        if !temp_keys.awaiting_password
-            && temp_keys.pending_approval_action.is_none()
-            && temp_keys.pending_policy_change_action.is_none() {
-            return Ok(()); // Not expecting password, ignore
-        }
-
-        // Take pending approval action if any
-        let pending_action = temp_keys.pending_approval_action.take();
-        let pending_policy_action = temp_keys.pending_policy_change_action.take();
-
-        // Reset the flag
-        temp_keys.awaiting_password = false;
-
-        // Take the keys (moving them out)
-        let user_key = temp_keys.user.take();
-        let agent_key = temp_keys.agent.take();
-
-        (user_key, agent_key, pending_action, pending_policy_action)
-    };
-
-    // Handle pending policy change action (approve/reject policy change with password)
-    if let Some((policy_id, approved)) = pending_policy_change_action {
-        // Verify the password against stored hash
-        let password_valid = state.storage.verify_user_password(&password).await
-            .map_err(|e| StewardError::Database(e.to_string()))?;
-
-        if !password_valid {
-            bot.send_message(chat_id, "❌ Incorrect password!\n\nPlease try again.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-            // Re-set the pending action so they can try again
-            state.temp_private_keys.lock().await.pending_policy_change_action = Some((policy_id, approved));
-            state.temp_private_keys.lock().await.awaiting_password = true;
-            return Ok(());
-        }
-
-        // Password verified - process the policy change
-        bot.send_message(chat_id, "✅ Password verified! Processing policy change...")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        // Process the policy change approval
-        let callback_id = String::new(); // Empty callback ID since this is from password input
-        process_policy_change_approval(&bot, Some(ChatId(chat_id.0)), &state, policy_id, approved, callback_id).await?;
-
-        return Ok(());
-    }
-
-    // FIX #1: Handle pending approval action (approve/reject with password)
-    if let Some((tx_id, approved)) = pending_approval_action {
-        // This is a password verification for approval/rejection
-        // Verify the password against stored hash
-        let password_valid = state.storage.verify_user_password(&password).await
-            .map_err(|e| StewardError::Database(e.to_string()))?;
-        
-        if !password_valid {
-            bot.send_message(chat_id, "❌ Incorrect password!\n\nPlease try again.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            
-            // Re-set the pending action so they can try again
-            state.temp_private_keys.lock().await.pending_approval_action = Some((tx_id, approved));
-            state.temp_private_keys.lock().await.awaiting_password = true;
-            return Ok(());
-        }
-        
-        // Password verified - proceed with the approval/rejection
-        let decision = if approved {
-            crate::approval::ApprovalDecision::Approved
-        } else {
-            crate::approval::ApprovalDecision::Rejected
-        };
-        
-        // Resolve the pending approval
-        let was_pending = state.pending_approvals.resolve(&tx_id, decision).await;
-        
-        if was_pending {
-            let action_text = if approved { "approved" } else { "rejected" };
-            bot.send_message(chat_id, 
-                format!("✅ Password verified! Transaction {}.", action_text))
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            
-            info!(chat_id = chat_id.0, tx_id = %tx_id, action = action_text, "Transaction decision processed via password");
-        } else {
-            bot.send_message(chat_id, "⚠️ This transaction is no longer pending.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-        
-        return Ok(());
-    }
-    
-    // Original wallet creation flow - set up password for user key
-    
-    // Check if this is first or second password entry
-    let is_confirm_step = {
-        let temp_keys = state.temp_private_keys.lock().await;
-        temp_keys.pending_password_confirm.is_some()
-    };
-    
-    if is_confirm_step {
-        // This is the confirmation entry - compare with first password
-        let first_password = {
-            let mut temp_keys = state.temp_private_keys.lock().await;
-            temp_keys.pending_password_confirm.take()
-        };
-        
-        if let Some(first_pwd) = first_password {
-            if password != first_pwd {
-                // Passwords don't match - ask again from start
-                bot.send_message(chat_id, "❌ Passwords don't match! Please start again.\n\nUse /createwallet to create a new wallet, then set your password.")
-                    .await
-                    .map_err(|e| StewardError::Telegram(e.to_string()))?;
-                
-                // Clear all temp keys
-                let mut temp_keys = state.temp_private_keys.lock().await;
-                temp_keys.user = None;
-                temp_keys.agent = None;
-                temp_keys.awaiting_password = false;
-                return Ok(());
-            }
-            
-            // Passwords match - proceed with encryption
-            // Set awaiting_password back to false to indicate we're done
-            let mut temp_keys = state.temp_private_keys.lock().await;
-            temp_keys.awaiting_password = false;
-        }
-    } else {
-        // First password entry - store and ask for confirmation
-        // Validate password
-        if password.len() < 8 {
-            bot.send_message(chat_id, "❌ Password too short! Must be at least 8 characters.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            
-            // Re-set the flag so user can try again
-            state.temp_private_keys.lock().await.awaiting_password = true;
-            return Ok(());
-        }
-        
-// Store first password and ask for confirmation
-        state.temp_private_keys.lock().await.pending_password_confirm = Some(password.clone());
-        
-        bot.send_message(chat_id, "📝 First password received.\n\nNow please CONFIRM your password by entering it again:")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        return Ok(());
-    }
-    
-    // Continue with the rest only after confirmation succeeded
-    let user_private = match user_private {
-        Some(k) => k,
-        None => {
-            bot.send_message(chat_id, "❌ No wallet in creation. Use /createwallet first.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            return Ok(());
-        }
-    };
-    
-    // Compute password hash for verification later
-    let mut hasher = Keccak256::new();
-    hasher.update(password.as_bytes());
-    let password_hash = hex::encode(hasher.finalize());
-    
-    // Create AgentKeyShare from user private key
-    let user_share = create_key_share(&user_private, 2, PartyRole::User)
-        .map_err(|e| StewardError::Internal(format!("Failed to create user key share: {}", e)))?;
-    
-    // Encrypt user key with their password
-    let encrypted_user = encrypt_key_share(&user_share, &password)
-        .map_err(|e| StewardError::Internal(format!("Failed to encrypt user key: {}", e)))?;
-    
-    // Store encrypted user key with password hash
-    state.storage.save_user_key(&encrypted_user, &password_hash).await
-        .map_err(|e| StewardError::Database(e.to_string()))?;
-    
-    // Also keep the agent key in temp storage (for the agent to use)
-    // The agent key doesn't need password protection (it's for the AI)
-    {
-        let mut temp_keys = state.temp_private_keys.lock().await;
-        temp_keys.agent = agent_private;
-    }
-    
-    // Confirm to user
-    let confirmation = r#"✅ Password Set Successfully!
-
-🔐 Your User Key is now protected with your password.
-
-You'll need to enter your password to:
-• Approve transactions
-• Reject transactions
-• View sensitive wallet operations
-
-⚠️ IMPORTANT: Your password cannot be recovered!
-Make sure to remember it.
-
-Next steps:
-💰 Fund your wallet with USDC on Base Sepolia
-🤖 Give the AGENT KEY to your AI agent
-✅ You're all set!"#;
-
-    bot.send_message(chat_id, confirmation)
-        .await
-        .map_err(|e| StewardError::Telegram(e.to_string()))?;
-    
-    info!(chat_id = chat_id.0, "User password set successfully");
-    
-    Ok(())
-}
-
-/// Check if bot is awaiting password input
-pub async fn is_awaiting_password(state: &Arc<crate::AppState>) -> bool {
-    state.temp_private_keys.lock().await.awaiting_password
 }
 
 #[cfg(test)]
@@ -1470,10 +954,6 @@ async fn handle_delete_wallet(bot: &Bot, msg: &Message, state: &Arc<crate::AppSt
                 let mut temp_keys = state.temp_private_keys.lock().await;
                 temp_keys.agent = None;
                 temp_keys.user = None;
-                temp_keys.awaiting_password = false;
-                temp_keys.pending_password_confirm = None;
-                temp_keys.pending_approval_action = None;
-                temp_keys.pending_policy_change_action = None;
             }
 
             let response = format!(
@@ -1495,237 +975,6 @@ You can now create a new wallet with /createwallet"#,
                 .await
                 .map_err(|e| StewardError::Telegram(e.to_string()))?;
         }
-    }
-
-    Ok(())
-}
-
-
-/// Handle policy change callback: "policy_approve:uuid" or "policy_reject:uuid"
-async fn handle_policy_change_callback(
-    bot: Bot,
-    q: teloxide::types::CallbackQuery,
-    state: Arc<crate::AppState>,
-) -> Result<()> {
-    let data = q.data.clone().unwrap_or_default();
-    let chat_id = q.message.as_ref().map(|m| m.chat().id);
-
-    // Parse callback: "policy_approve:uuid" or "policy_reject:uuid"
-    let parts: Vec<&str> = data.split(':').collect();
-    if parts.len() != 2 {
-        if let Some(cid) = chat_id {
-            bot.send_message(cid, "❌ Invalid policy change callback data.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-        return Ok(());
-    }
-
-    let action = parts[0]; // "policy_approve" or "policy_reject"
-    let id_str = parts[1];
-
-    // Parse policy change ID
-    let uuid = match uuid::Uuid::parse_str(id_str) {
-        Ok(u) => u,
-        Err(_) => {
-            if let Some(cid) = chat_id {
-                bot.send_message(cid, "❌ Invalid policy change ID.")
-                    .await
-                    .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            }
-            return Ok(());
-        }
-    };
-
-    let policy_id = crate::types::PolicyChangeRequestId::from(uuid);
-    let approved = action == "policy_approve";
-
-    // Get the policy change request
-    let record = match state.storage.get_policy_change_request(policy_id).await {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            bot.answer_callback_query(q.id)
-                .text("⚠️ Policy change request not found.")
-                .show_alert(true)
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            return Ok(());
-        }
-        Err(e) => {
-            bot.answer_callback_query(q.id)
-                .text(&format!("Error: {}", e))
-                .show_alert(true)
-                .await
-                .ok();
-            return Ok(());
-        }
-    };
-
-    // Check if already resolved
-    if record.status != crate::types::PolicyChangeStatus::Pending {
-        bot.answer_callback_query(q.id)
-            .text("⚠️ This policy change request has already been processed.")
-            .show_alert(true)
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        return Ok(());
-    }
-
-    // Check if user has a password set up
-    let has_user_key = state.storage.has_user_key().await
-        .map_err(|e| StewardError::Database(e.to_string()))?;
-
-    if has_user_key {
-        // User has a password - require it before processing
-        {
-            let mut temp_keys = state.temp_private_keys.lock().await;
-            temp_keys.pending_policy_change_action = Some((policy_id, approved));
-            temp_keys.awaiting_password = true;
-        }
-
-        // Answer callback to dismiss loading
-        bot.answer_callback_query(q.id)
-            .text("🔐 Enter your password to confirm")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        // Ask for password
-        if let Some(cid) = chat_id {
-            let prompt = if approved {
-                r#"🔐 Password Required to Approve Policy Change
-
-Please enter your wallet password to confirm this policy change.
-
-⚠️ You must enter your password - there's no way to recover it if forgotten!"#
-            } else {
-                r#"🔐 Password Required to Reject Policy Change
-
-Please enter your wallet password to confirm this rejection.
-
-⚠️ You must enter your password - there's no way to recover it if forgotten!"#
-            };
-
-            bot.send_message(cid, prompt)
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-            // Update the original message
-            if let Some(msg) = q.message {
-                let new_text = if approved {
-                    "🔐 Awaiting password for policy change approval..."
-                } else {
-                    "🔐 Awaiting password for policy change rejection..."
-                };
-                bot.edit_message_text(msg.chat().id, msg.id(), new_text)
-                    .await
-                    .ok();
-            }
-        }
-
-        return Ok(());
-    }
-
-    // No password set - process directly (shouldn't normally happen)
-    process_policy_change_approval(&bot, chat_id, &state, policy_id, approved, q.id).await
-}
-
-/// Process a policy change approval/rejection
-async fn process_policy_change_approval(
-    bot: &Bot,
-    chat_id: Option<ChatId>,
-    state: &Arc<crate::AppState>,
-    policy_id: crate::types::PolicyChangeRequestId,
-    approved: bool,
-    callback_id: String,
-) -> Result<()> {
-    // Get the policy change request
-    let mut record = match state.storage.get_policy_change_request(policy_id).await {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            if let Some(cid) = chat_id {
-                bot.send_message(cid, "⚠️ Policy change request not found.")
-                    .await
-                    .map_err(|e| StewardError::Telegram(e.to_string()))?;
-            }
-            return Ok(());
-        }
-        Err(e) => {
-            return Err(StewardError::Database(e.to_string()));
-        }
-    };
-
-    // Check if already resolved
-    if record.status != crate::types::PolicyChangeStatus::Pending {
-        bot.answer_callback_query(callback_id)
-            .text("⚠️ This request has already been processed.")
-            .show_alert(true)
-            .await
-            .ok();
-        return Ok(());
-    }
-
-    if approved {
-        // Apply the policy change
-        let field = record.request.field.clone();
-        let new_value = record.request.new_value.clone();
-
-        // Update the policy
-        {
-            let engine = state.policy_engine.write().await;
-            engine.update_rule(&field, &new_value).await
-                .map_err(|e| StewardError::Internal(e.to_string()))?;
-            engine.save().await
-                .map_err(|e| StewardError::Storage(e.to_string()))?;
-        }
-
-        // Mark as approved
-        record.approve(chat_id.map(|c| c.0.to_string()).unwrap_or_default());
-        state.storage.update_policy_change_request(&record).await
-            .map_err(|e| StewardError::Database(e.to_string()))?;
-
-        // Answer callback
-        bot.answer_callback_query(callback_id)
-            .text("✅ Policy change approved!")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        if let Some(cid) = chat_id {
-            bot.send_message(cid, format!(
-                "✅ Policy Change Approved\n\n📝 Field: {}\n📈 New Value: {}",
-                record.request.field.replace("_", " "),
-                record.request.new_value
-            )).await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-
-        info!(
-            policy_change_id = %policy_id,
-            field = %record.request.field,
-            new_value = %record.request.new_value,
-            "Policy change approved via Telegram"
-        );
-    } else {
-        // Mark as rejected
-        record.reject(chat_id.map(|c| c.0.to_string()).unwrap_or_default());
-        state.storage.update_policy_change_request(&record).await
-            .map_err(|e| StewardError::Database(e.to_string()))?;
-
-        // Answer callback
-        bot.answer_callback_query(callback_id)
-            .text("❌ Policy change rejected.")
-            .await
-            .map_err(|e| StewardError::Telegram(e.to_string()))?;
-
-        if let Some(cid) = chat_id {
-            bot.send_message(cid, "❌ Policy Change Rejected\n\nThe requested change has been cancelled.")
-                .await
-                .map_err(|e| StewardError::Telegram(e.to_string()))?;
-        }
-
-        info!(
-            policy_change_id = %policy_id,
-            "Policy change rejected via Telegram"
-        );
     }
 
     Ok(())

@@ -193,6 +193,7 @@ mod tests {
                 on_rejection: true,
                 on_execution: true,
                 on_error: true,
+                timeout_secs: 300,
             },
         };
         

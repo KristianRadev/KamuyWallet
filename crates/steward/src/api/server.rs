@@ -62,6 +62,11 @@ fn build_router(state: ApiState) -> Router {
         .route("/api/v1/transactions/:id", get(routes::get_transaction))
         .route("/api/v1/transactions/:id/approve", post(routes::approve_transaction))
         .route("/api/v1/transactions/:id/reject", post(routes::reject_transaction))
+        // Approval routes (inline Telegram flow)
+        .route("/api/v1/approval/pending", get(routes::get_pending_approvals))
+        .route("/api/v1/approval/pending/:id", get(routes::get_approval_request))
+        .route("/api/v1/approval/request", post(routes::create_approval_request))
+        .route("/api/v1/approval/respond", post(routes::respond_to_approval))
         // Policy routes
         .route("/api/v1/policy", get(routes::get_policy))
         .route("/api/v1/policy", put(routes::update_policy))
